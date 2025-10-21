@@ -2,7 +2,7 @@
 # 🌤️ Application Streamlit — Climat de Beauvais (2004 / 2024 / 2044)
 # =========================================================
 # Prérequis :
-# pip install streamlit openmeteo-requests requests-cache retry-requests pandas numpy altair scikit-learn cdsapi xarray netCDF4
+# pip install streamlit openmeteo-requests requests-cache retry-requests pandas numpy altair scikit-learn
 
 import streamlit as st
 import openmeteo_requests
@@ -20,7 +20,7 @@ st.markdown(
     "<h1 style='text-align:center;'>🌤️ Climat de Beauvais — 2004 / 2024 / Projection 2044</h1>",
     unsafe_allow_html=True
 )
-st.write("Données historiques : **Open-Meteo Archive API**. Projections : **ML** (Ridge + saisonnalité) et **CMIP6 Copernicus**.")
+st.write("Données historiques : **Open-Meteo Archive API**. Projection 2044 : **ML** (Ridge + saisonnalité).")
 
 # ---------------------------------------------------------
 # Utilitaires : chargement et préparation Open-Meteo
@@ -128,13 +128,12 @@ with st.spinner("⏳ Chargement des données 2004 et 2024..."):
 ordre_mois = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"]
 
 # ---------------------------------------------------------
-# Tabs UI
+# Tabs UI — 3 onglets seulement
 # ---------------------------------------------------------
-onglet_comp, onglet_annee, onglet_proj, onglet_climat = st.tabs([
+onglet_comp, onglet_annee, onglet_proj = st.tabs([
     "🆚 Comparaison 2004 vs 2024",
     "📅 Vue par année",
-    "🔮 Projection 2044 (ML)",
-    "🌍 Modèle climatique 2044"
+    "🔮 Projection 2044 (ML)"
 ])
 
 # =========================================================
@@ -232,7 +231,7 @@ with onglet_annee:
     )
 
 # =========================================================
-# 🔮 Onglet : Projection 2044 (Machine Learning)
+# 🔮 Onglet : Projection 2044 (Machine Learning) — paramètres figés
 # =========================================================
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -290,12 +289,10 @@ def proj_ml_2044(df_all_years: pd.DataFrame, col: str, deg: int = 2, alpha: floa
 
 with onglet_proj:
     st.subheader("Projection 2044 (ML : Ridge polynomiale + saisonnalité)")
-    # Hyperparamètres optionnels
-    colA, colB = st.columns(2)
-    with colA:
-        deg = st.slider("Degré polynôme (Année)", 1, 3, 2, help="1=linéaire, 2=quadratique, 3=cubique")
-    with colB:
-        alpha = st.slider("Régularisation Ridge (alpha)", 0.1, 10.0, 1.0)
+    st.caption("Modèle ML fixé : degré=2, alpha=1.0 (pas de curseurs).")
+
+    # Paramètres figés
+    deg, alpha = 2, 1.0
 
     with st.spinner("Entraînement sur 2004→2024..."):
         df_all_years = charger_toutes_annees(2004, 2024)
@@ -353,163 +350,3 @@ with onglet_proj:
         file_name="projection_2044_ML.csv",
         mime="text/csv"
     )
-
-# =========================================================
-# 🌍 Onglet : Modèle climatique 2044 (CMIP6 via Copernicus CDS)
-# =========================================================
-with onglet_climat:
-    st.subheader("Projection 2044 (CMIP6 via Copernicus Climate Data Store)")
-    st.caption("Option A : téléchargement via l'API CDS (requiert ~/.cdsapirc). Option B : importer un NetCDF (.nc) que tu as déjà.")
-
-    # Sélection scénario / modèle
-    colA, colB = st.columns(2)
-    with colA:
-        scenario_label = st.selectbox("Scénario d'émissions (SSP)", ["SSP2-4.5", "SSP1-2.6", "SSP5-8.5"], index=0)
-    with colB:
-        model_label = st.selectbox("Modèle CMIP6", [
-            "ACCESS-ESM1-5", "BCC-CSM2-MR", "CNRM-ESM2-1", "MPI-ESM1-2-HR", "MRI-ESM2-0"
-        ], index=0)
-
-    ssp_map = {"SSP1-2.6": "ssp126", "SSP2-4.5": "ssp245", "SSP5-8.5": "ssp585"}
-    ssp = ssp_map[scenario_label]
-
-    st.markdown("#### ⬇️ Option A — Télécharger depuis Copernicus (CMIP6)")
-    do_download = st.button("Télécharger 2044 (mensuel)")
-
-    ds = None
-    if do_download:
-        try:
-            import cdsapi
-            from pathlib import Path
-            out_path = Path("projection_2044_beauvais.nc")
-            c = cdsapi.Client()
-            c.retrieve(
-                "projections-cmip6",
-                {
-                    "format": "netcdf",
-                    "temporal_resolution": "monthly",
-                    "experiment": ssp,
-                    "variable": ["2m_temperature", "precipitation"],
-                    "model": [model_label],
-                    "year": ["2044"],
-                    "month": [f"{m:02d}" for m in range(1, 13)],
-                    # zone autour de Beauvais (N, W, S, E)
-                    "area": [49.6, 2.0, 49.3, 2.3],
-                },
-                str(out_path)
-            )
-            import xarray as xr
-            ds = xr.open_dataset(out_path)
-            st.success("✅ Fichier téléchargé : projection_2044_beauvais.nc")
-        except ModuleNotFoundError:
-            st.error("Module 'cdsapi' manquant. Ajoute 'cdsapi' à requirements.txt et configure ~/.cdsapirc.")
-        except Exception as e:
-            st.warning(f"Téléchargement CDS impossible : {e}")
-
-    st.markdown("#### 📤 Option B — Importer un fichier NetCDF (.nc)")
-    uploaded = st.file_uploader("Dépose un fichier NetCDF 2044 (mensuel) avec température/précipitations.", type=["nc"])
-    if uploaded is not None and ds is None:
-        try:
-            import xarray as xr
-            ds = xr.open_dataset(uploaded)
-            st.success("✅ Fichier NetCDF chargé.")
-        except ModuleNotFoundError:
-            st.error("Modules manquants : 'xarray' et 'netCDF4'. Ajoute-les au requirements.txt.")
-        except Exception as e:
-            st.warning(f"Lecture du NetCDF impossible : {e}")
-
-    if ds is not None:
-        import xarray as xr  # safe import si Option A
-        # Recherche des variables
-        var_temp_candidates = ["tas", "tas_monthly", "2m_temperature", "t2m"]
-        var_prec_candidates = ["pr", "precipitation", "pr_monthly"]
-
-        def pick_var(ds_obj, candidates):
-            for v in candidates:
-                if v in ds_obj.variables:
-                    return v
-            raise KeyError(f"Variables candidates non trouvées : {candidates}")
-
-        try:
-            vtemp = pick_var(ds, var_temp_candidates)
-            vprec = pick_var(ds, var_prec_candidates)
-        except Exception as e:
-            st.error(f"Variables climatiques non trouvées dans le fichier : {e}")
-            st.stop()
-
-        # Agrégation spatiale si nécessaire
-        dims_t = list(ds[vtemp].dims)
-        dims_p = list(ds[vprec].dims)
-        da_temp = ds[vtemp]
-        da_prec = ds[vprec]
-        if ("latitude" in dims_t and "longitude" in dims_t) or ("lat" in dims_t and "lon" in dims_t):
-            latdims = ["latitude", "lat"]
-            londims = ["longitude", "lon"]
-            latdim = [d for d in latdims if d in dims_t][0]
-            londim = [d for d in londims if d in dims_t][0]
-            da_temp = da_temp.mean(dim=[latdim, londim])
-        if ("latitude" in dims_p and "longitude" in dims_p) or ("lat" in dims_p and "lon" in dims_p):
-            latdims = ["latitude", "lat"]
-            londims = ["longitude", "lon"]
-            latdim = [d for d in latdims if d in dims_p][0]
-            londim = [d for d in londims if d in dims_p][0]
-            da_prec = da_prec.mean(dim=[latdim, londim])
-
-        # Temps et unités
-        time = pd.to_datetime(ds["time"].values)
-        mois_num = time.month
-
-        # Température : Kelvin -> °C si nécessaire
-        temp_vals = da_temp.values
-        if np.nanmean(temp_vals) > 100:
-            temp_vals = temp_vals - 273.15
-
-        # ✅ Précipitations : kg m^-2 s^-1 -> mm/mois
-        prec_vals = da_prec.values
-        if np.nanmean(prec_vals) < 5:  # valeur très petite => probablement kg m^-2 s^-1
-            months = pd.PeriodIndex(time, freq="M")
-            days_in_month = months.days_in_month.values
-            prec_vals = prec_vals * 86400 * days_in_month  # 1 kg/m^2 = 1 mm
-
-        # DataFrame final
-        mois_noms = ordre_mois
-        df_2044_clim = pd.DataFrame({
-            "Mois (numéro)": mois_num,
-            "Mois (nom)": [mois_noms[m-1] for m in mois_num],
-            "Température moyenne (°C)": np.round(temp_vals, 1),
-            "Précipitations totales (mm)": np.round(prec_vals, 1),
-        }).sort_values("Mois (numéro)")
-        df_2044_clim["Précipitations cumulées (mm)"] = df_2044_clim["Précipitations totales (mm)"].cumsum().round(1)
-
-        # Affichage
-        st.markdown(f"#### 📅 Résultats 2044 — {scenario_label} — {model_label}")
-        st.dataframe(df_2044_clim, use_container_width=True)
-
-        df_2044_clim["Mois (nom)"] = pd.Categorical(df_2044_clim["Mois (nom)"], categories=ordre_mois, ordered=True)
-
-        st.markdown("#### 🌡️ Température mensuelle (modèle climatique)")
-        chart_temp_clim = alt.Chart(df_2044_clim).mark_line(point=True).encode(
-            x=alt.X("Mois (nom):O", sort=ordre_mois),
-            y=alt.Y("Température moyenne (°C):Q"),
-            tooltip=["Mois (nom)", alt.Tooltip("Température moyenne (°C):Q", format=".1f")]
-        )
-        st.altair_chart(chart_temp_clim, use_container_width=True)
-
-        st.markdown("#### 🌧️ Précipitations mensuelles (modèle climatique)")
-        chart_prec_clim = alt.Chart(df_2044_clim).mark_bar().encode(
-            x=alt.X("Mois (nom):O", sort=ordre_mois),
-            y=alt.Y("Précipitations totales (mm):Q"),
-            tooltip=["Mois (nom)", alt.Tooltip("Précipitations totales (mm):Q", format=".1f")]
-        )
-        st.altair_chart(chart_prec_clim, use_container_width=True)
-
-        # Export CSV
-        csv_clim = df_2044_clim.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "📥 Télécharger la projection 2044 (modèle climatique)",
-            data=csv_clim,
-            file_name=f"projection_2044_CMIP6_{ssp}_{model_label}.csv",
-            mime="text/csv"
-        )
-    else:
-        st.info("Choisis l'Option A (téléchargement) ou l'Option B (import d'un NetCDF) pour afficher la projection 2044.")
