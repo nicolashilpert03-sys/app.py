@@ -132,7 +132,36 @@ def charger_donnees(annee: int):
     return df_mensuel
 
 # ---------------------------------------------------------
-# Chargement des données + préparation comparaison
+# Utilitaires ML : construction du dataset 2004→2024 et projection 2044
+# ---------------------------------------------------------
+import numpy as np
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import PolynomialFeatures, StandardScaler
+from sklearn.linear_model import Ridge
+
+@st.cache_data(show_spinner=False)
+def charger_toutes_annees(debut=2004, fin=2024):
+    """Charge et concatène les données mensuelles de toutes les années [debut..fin]."""
+    frames = []
+    for an in range(debut, fin + 1):
+        df = charger_donnees(an).copy()
+        df["Année"] = an
+        frames.append(df[[
+            "Année", "Mois (numéro)", "Mois (nom)",
+            "Température moyenne (°C)", "Précipitations totales (mm)", "Evapotranspiration (mm)"
+        ]])
+    big = pd.concat(frames, ignore_index=True)
+    # Ajout des features saisonnières sin/cos
+    angle = 2 * np.pi * (big["Mois (numéro)"] - 1) / 12.0
+    big["sin_mois"], big["cos_mois"] = np.sin(angle), np.cos(angle)
+    return big
+
+@st.cache_data(show_spinner=False)
+def proj_ml_2044(df_all_years: pd.DataFrame, col: str, deg: int = 2, alpha: float = 1.0) -> pd.DataFrame:
+    """Projection 2044 par régression polynomiale sur l'année + sin/cos(mois) avec Ridge."""
+    # Dataset d'entraînement
+    X = df_all_years[["Année", "sin_mois", "cos_mois"]].copy()
+    y
 # ---------------------------------------------------------
 with st.spinner("Chargement des données 2004 et 2024..."):
     df_2004 = charger_donnees(2004)
