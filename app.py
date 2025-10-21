@@ -10,7 +10,6 @@ import pandas as pd
 import requests_cache
 from retry_requests import retry
 import altair as alt
-import calendar
 
 # ---------------------------------------------------------
 # Configuration générale de la page
@@ -75,9 +74,10 @@ def charger_donnees(annee: int):
         "et0_fao_evapotranspiration": evapotranspiration
     })
 
-    # 🔹 On garde uniquement les mois de 1 à 12 pour l’année demandée
-    df = df[(df["date"].dt.year == annee) & (df["date"].dt.month >= 1) & (df["date"].dt.month <= 12)]
+    # 🔹 On garde uniquement les données de janvier à décembre de l’année exacte
+    df = df[df["date"].dt.year == annee]
     df["mois"] = df["date"].dt.month
+    df = df[(df["mois"] >= 1) & (df["mois"] <= 12)]
 
     def mode_as_int(series):
         m = series.mode()
@@ -116,7 +116,8 @@ def charger_donnees(annee: int):
         "wind_direction_10m_dominant": "Direction du vent dominante"
     }, inplace=True)
 
-    # Réorganisation finale
+    # 🔹 Réorganisation + tri forcé janvier → décembre
+    df_mensuel = df_mensuel.sort_values("Mois (numéro)").reset_index(drop=True)
     df_mensuel = df_mensuel[[
         "Mois (numéro)",
         "Mois (nom)",
@@ -157,7 +158,7 @@ col1, col2 = st.columns(2)
 with col1:
     st.markdown("#### 🌡️ Température moyenne mensuelle")
     chart_temp = alt.Chart(df_sel).mark_line(point=True).encode(
-        x=alt.X("Mois (nom):O", title="Mois"),
+        x=alt.X("Mois (nom):O", sort=["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"]),
         y=alt.Y("Température moyenne (°C):Q"),
         tooltip=["Mois (nom)", "Température moyenne (°C)"]
     )
@@ -166,7 +167,7 @@ with col1:
 with col2:
     st.markdown("#### 🌧️ Précipitations totales mensuelles")
     chart_precip = alt.Chart(df_sel).mark_bar().encode(
-        x=alt.X("Mois (nom):O", title="Mois"),
+        x=alt.X("Mois (nom):O", sort=["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"]),
         y=alt.Y("Précipitations totales (mm):Q"),
         tooltip=["Mois (nom)", "Précipitations totales (mm)"]
     )
@@ -174,7 +175,7 @@ with col2:
 
 st.markdown("#### 💧 Évapotranspiration cumulée annuelle")
 chart_et0 = alt.Chart(df_sel).mark_area(opacity=0.6).encode(
-    x=alt.X("Mois (nom):O", title="Mois"),
+    x=alt.X("Mois (nom):O", sort=["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"]),
     y=alt.Y("Evapotranspiration cumulée (mm):Q"),
     tooltip=["Mois (nom)", "Evapotranspiration cumulée (mm)"]
 )
@@ -191,4 +192,4 @@ st.download_button(
     mime="text/csv"
 )
 
-st.success("✅ Données prêtes et graphiques affichés !")
+st.success("✅ Données prêtes et graphiques affichés (Janvier → Décembre) !")
