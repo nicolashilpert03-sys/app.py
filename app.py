@@ -2,7 +2,7 @@
 # 🌤️ Application Streamlit — Climat de Beauvais (2004 vs 2024)
 # =========================================================
 # Prérequis :
-# pip install streamlit openmeteo-requests requests-cache retry-requests pandas numpy altair
+# pip install streamlit openmeteo-requests requests-cache retry-requests pandas numpy altair scikit-learn cdsapi xarray netCDF4
 
 import streamlit as st
 import openmeteo_requests
@@ -10,8 +10,6 @@ import pandas as pd
 import requests_cache
 from retry_requests import retry
 import altair as alt
-from sklearn.pipeline import Pipeline
-
 
 # ---------------------------------------------------------
 # Configuration générale de la page
@@ -242,7 +240,7 @@ df_comp["Δ ET0 (mm)"] = (df_comp["ET0 2024 (mm)"] - df_comp["ET0 2004 (mm)"]).r
 # ---------------------------------------------------------
 # Mise en page : onglets (Comparaison vs Vue par année)
 # ---------------------------------------------------------
-onglet_comp, onglet_annee, onglet_proj = st.tabs(["🆚 Comparaison 2004 vs 2024", "📅 Vue par année", "🔮 Projection 2044"])
+onglet_comp, onglet_annee, onglet_proj, onglet_climat = st.tabs(["🆚 Comparaison 2004 vs 2024", "📅 Vue par année", "🔮 Projection 2044", "🌍 Modèle climatique 2044"])
 
 with onglet_comp:
     # KPIs annuels
@@ -468,3 +466,114 @@ with onglet_proj:
         file_name="projection_2044_ML.csv",
         mime="text/csv"
     )
+
+# ---------------------------------------------------------
+# 🌍 Onglet : Modèle climatique 2044 (CMIP6 via Copernicus CDS)
+# ---------------------------------------------------------
+with onglet_climat:
+    st.markdown("### 🌍 Projection 2044 basée sur un modèle climatique (CMIP6 via Copernicus – Copernicus Climate Data Store)")
+    st.caption("Deux options : 1) Télécharger automatiquement via l'API Copernicus (nécessite un compte et ~/.cdsapirc), 2) Importer un fichier NetCDF (.nc) que tu as déjà téléchargé.")
+
+    # Sélection scénario et modèle (liste non exhaustive)
+    colA, colB = st.columns(2)
+    with colA:
+        scenario_label = st.selectbox("Scénario d'émission (SSP)", ["SSP2-4.5", "SSP1-2.6", "SSP5-8.5"], index=0)
+    with colB:
+        model_label = st.selectbox("Modèle CMIP6", [
+            "ACCESS-ESM1-5", "BCC-CSM2-MR", "CNRM-ESM2-1", "MPI-ESM1-2-HR", "MRI-ESM2-0"
+        ], index=0)
+
+    ssp_map = {"SSP1-2.6": "ssp126", "SSP2-4.5": "ssp245", "SSP5-8.5": "ssp585"}
+    ssp = ssp_map[scenario_label]
+
+    # Tentative de téléchargement via cdsapi (optionnelle)
+    st.markdown("#### ⬇️ Option A — Télécharger depuis Copernicus")
+    do_download = st.button("Télécharger 2044 (mensuel) depuis CDS")
+
+    ds = None
+    if do_download:
+        try:
+            import cdsapi
+            from pathlib import Path
+            out_path = Path("projection_2044_beauvais.nc")
+            c = cdsapi.Client()
+            c.retrieve(
+                "projections-cmip6",
+                {
+                    "format": "netcdf",
+                    "temporal_resolution": "monthly",
+                    "experiment": ssp,
+                    "variable": ["2m_temperature", "precipitation"],
+                    "model": [model_label],
+                    "year": ["2044"],
+                    "month": [f"{m:02d}" for m in range(1, 13)],
+                    # zone autour de Beauvais (N, W, S, E)
+                    "area": [49.6, 2.0, 49.3, 2.3],
+                },
+                str(out_path)
+            )
+            import xarray as xr
+            ds = xr.open_dataset(out_path)
+            st.success("Fichier téléchargé : projection_2044_beauvais.nc")
+        except ModuleNotFoundError:
+            st.error("Le module 'cdsapi' n'est pas installé. Ajoute 'cdsapi' dans requirements.txt et configure ~/.cdsapirc.")
+        except Exception as e:
+            st.warning(f"Téléchargement CDS impossible : {e}")
+
+    # Option B : Upload manuel d'un NetCDF
+    st.markdown("#### 📤 Option B — Importer un fichier NetCDF (.nc)")
+    uploaded = st.file_uploader("Dépose un fichier NetCDF CMIP6 (mensuel, 2044) contenant température/ précipitations.", type=["nc"]) 
+    if uploaded is not None and ds is None:
+        try:
+            import xarray as xr
+            ds = xr.open_dataset(uploaded)
+            st.success("Fichier NetCDF chargé avec succès.")
+        except ModuleNotFoundError:
+            st.error("Le module 'xarray' n'est pas installé. Ajoute 'xarray' et 'netCDF4' dans requirements.txt.")
+        except Exception as e:
+            st.warning(f"Lecture du NetCDF impossible : {e}")
+
+    # Lecture + agrégation spatiale et conversion d'unités
+    if ds is not None:
+        import pandas as pd
+        import numpy as np
+        # Tentatives de noms de variables (peuvent varier selon la source)
+        var_temp_candidates = ["tas", "tas_monthly", "2m_temperature", "t2m"]
+        var_prec_candidates = ["pr", "precipitation", "pr_monthly"]
+
+        def pick_var(ds, candidates):
+            for v in candidates:
+                if v in ds.variables:
+                    return v
+            raise KeyError(f"Variables candidates non trouvées : {candidates}")
+
+        try:
+            vtemp = pick_var(ds, var_temp_candidates)
+            vprec = pick_var(ds, var_prec_candidates)
+        except Exception as e:
+            st.error(f"Variables climatiques non trouvées dans le fichier : {e}")
+            st.stop()
+
+        # Agrégation spatiale (moyenne sur la tuile) si lat/lon présents
+        dims = list(ds[vtemp].dims)
+        da_temp = ds[vtemp]
+        da_prec = ds[vprec]
+        if "latitude" in dims and "longitude" in dims:
+            da_temp = da_temp.mean(dim=["latitude", "longitude"]) 
+            da_prec = da_prec.mean(dim=["latitude", "longitude"]) 
+        elif "lat" in dims and "lon" in dims:
+            da_temp = da_temp.mean(dim=["lat", "lon"]) 
+            da_prec = da_prec.mean(dim=["lat", "lon"]) 
+
+        # Convertir temps en index Pandas
+        time = pd.to_datetime(ds["time"].values)
+        mois_num = time.month
+
+        # Conversion d'unités
+        # Température : Kelvin -> °C si valeurs > 100
+        temp_vals = da_temp.values
+        if np.nanmean(temp_vals) > 100:
+            temp_vals = temp_vals - 273.15
+        # Précipitations : kg m^-2 s^-1 -> mm/mois (1 kg/m^2 = 1 mm)
+        prec_vals = da_prec.values
+        if np.nanmean(prec_vals) <
