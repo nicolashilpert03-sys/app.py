@@ -73,7 +73,12 @@ def charger_donnees(annee: int):
         "wind_direction_10m_dominant": wind_direction,
         "et0_fao_evapotranspiration": evapotranspiration
     })
-    df["mois"] = df["date"].dt.to_period("M")
+
+    # 🔹 On ne garde que les mois de 1 à 12 de l’année demandée
+    df = df[(df["date"].dt.year == annee) & (df["date"].dt.month >= 1) & (df["date"].dt.month <= 12)]
+
+    # Ajout du numéro de mois (1 à 12)
+    df["mois"] = df["date"].dt.month
 
     def mode_as_int(series):
         m = series.mode()
@@ -91,11 +96,13 @@ def charger_donnees(annee: int):
     df_mensuel["temperature_2m_mean"] = df_mensuel["temperature_2m_mean"].round(1)
     df_mensuel["precipitation_sum"] = df_mensuel["precipitation_sum"].round(1)
     df_mensuel["et0_fao_evapotranspiration"] = df_mensuel["et0_fao_evapotranspiration"].round(1)
+
+    # Cumulés annuels
     df_mensuel["Précipitations cumulées (mm)"] = df_mensuel["precipitation_sum"].cumsum()
     df_mensuel["Evapotranspiration cumulée (mm)"] = df_mensuel["et0_fao_evapotranspiration"].cumsum()
 
-    df_mensuel["Mois"] = df_mensuel["mois"].astype(str)
     df_mensuel.rename(columns={
+        "mois": "Mois",
         "temperature_2m_mean": "Température moyenne (°C)",
         "precipitation_sum": "Précipitations totales (mm)",
         "et0_fao_evapotranspiration": "Evapotranspiration (mm)",
@@ -131,8 +138,8 @@ col1, col2 = st.columns(2)
 with col1:
     st.markdown("#### 🌡️ Température moyenne mensuelle")
     chart_temp = alt.Chart(df_sel).mark_line(point=True).encode(
-        x="Mois:T",
-        y="Température moyenne (°C):Q",
+        x=alt.X("Mois:O", title="Mois"),
+        y=alt.Y("Température moyenne (°C):Q"),
         tooltip=["Mois", "Température moyenne (°C)"]
     )
     st.altair_chart(chart_temp, use_container_width=True)
@@ -140,16 +147,16 @@ with col1:
 with col2:
     st.markdown("#### 🌧️ Précipitations totales mensuelles")
     chart_precip = alt.Chart(df_sel).mark_bar().encode(
-        x="Mois:T",
-        y="Précipitations totales (mm):Q",
+        x=alt.X("Mois:O", title="Mois"),
+        y=alt.Y("Précipitations totales (mm):Q"),
         tooltip=["Mois", "Précipitations totales (mm)"]
     )
     st.altair_chart(chart_precip, use_container_width=True)
 
 st.markdown("#### 💧 Évapotranspiration cumulée annuelle")
 chart_et0 = alt.Chart(df_sel).mark_area(opacity=0.6).encode(
-    x="Mois:T",
-    y="Evapotranspiration cumulée (mm):Q",
+    x=alt.X("Mois:O", title="Mois"),
+    y=alt.Y("Evapotranspiration cumulée (mm):Q"),
     tooltip=["Mois", "Evapotranspiration cumulée (mm)"]
 )
 st.altair_chart(chart_et0, use_container_width=True)
@@ -166,3 +173,4 @@ st.download_button(
 )
 
 st.success("✅ Données prêtes et graphiques affichés !")
+
