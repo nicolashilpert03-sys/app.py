@@ -175,7 +175,7 @@ df_comp["Δ ET0 (mm)"] = (df_comp["ET0 2024 (mm)"] - df_comp["ET0 2004 (mm)"]).r
 # ---------------------------------------------------------
 # Mise en page : onglets (Comparaison vs Vue par année)
 # ---------------------------------------------------------
-onglet_comp, onglet_annee = st.tabs(["🆚 Comparaison 2004 vs 2024", "📅 Vue par année"])
+onglet_comp, onglet_annee, onglet_proj = st.tabs(["🆚 Comparaison 2004 vs 2024", "📅 Vue par année", "🔮 Projection 2044"])
 
 with onglet_comp:
     # KPIs annuels
@@ -315,3 +315,95 @@ with onglet_annee:
     )
 
     st.success("✅ Données prêtes et graphiques affichés (Janvier → Décembre) !")
+
+with onglet_proj:
+    st.markdown("### 🔮 Projection 2044 (extrapolation linéaire 2004 → 2024)")
+
+    # Calcul 2044 à partir de deux points (2004, 2024) : v2044 = 2*v2024 - v2004
+    def proj_2044(df_a, df_b, col):
+        merged = df_a[["Mois (numéro)", "Mois (nom)", col]].merge(
+            df_b[["Mois (numéro)", col]], on="Mois (numéro)", suffixes=("_2004", "_2024")
+        ).sort_values("Mois (numéro)")
+        merged[f"{col} 2044"] = (2*merged[f"{col}_2024"] - merged[f"{col}_2004"]).round(1)
+        return merged[["Mois (numéro)", "Mois (nom)", f"{col} 2044"]].rename(columns={f"{col} 2044": col})
+
+    temp_2044 = proj_2044(df_2004, df_2024, "Température moyenne (°C)")
+    prec_2044 = proj_2044(df_2004, df_2024, "Précipitations totales (mm)")
+    et0_2044  = proj_2044(df_2004, df_2024, "Evapotranspiration (mm)")
+
+    df_2044 = temp_2044.merge(prec_2044, on=["Mois (numéro)", "Mois (nom)"]).merge(et0_2044, on=["Mois (numéro)", "Mois (nom)"])
+    df_2044["Précipitations cumulées (mm)"] = df_2044["Précipitations totales (mm)"].cumsum()
+    df_2044["Evapotranspiration cumulée (mm)"] = df_2044["Evapotranspiration (mm)"].cumsum()
+
+    # KPIs projetés
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.metric("Température moyenne annuelle prévue (°C)", round(df_2044["Température moyenne (°C)"].mean(), 1))
+    with c2:
+        st.metric("Précipitations totales annuelles prévues (mm)", round(df_2044["Précipitations totales (mm)"].sum(), 1))
+    with c3:
+        st.metric("ET0 totale annuelle prévue (mm)", round(df_2044["Evapotranspiration (mm)"].sum(), 1))
+
+    # Table 2044
+    st.markdown("#### 📅 Données mensuelles prévues – 2044")
+    st.dataframe(df_2044, use_container_width=True)
+
+    # Courbe des températures 2004/2024/2044 superposées
+    df_plot_temp = pd.concat([
+        df_2004[["Mois (nom)", "Température moyenne (°C)"]].assign(Année=2004),
+        df_2024[["Mois (nom)", "Température moyenne (°C)"]].assign(Année=2024),
+        df_2044[["Mois (nom)", "Température moyenne (°C)"]].assign(Année=2044)
+    ])
+    df_plot_temp["Mois (nom)"] = pd.Categorical(df_plot_temp["Mois (nom)"], categories=ordre_mois, ordered=True)
+
+    st.markdown("#### 🌡️ Température moyenne mensuelle – comparaison 2004 / 2024 / 2044")
+    chart_t = alt.Chart(df_plot_temp).mark_line(point=True).encode(
+        x=alt.X("Mois (nom):O", sort=ordre_mois),
+        y=alt.Y("Température moyenne (°C):Q"),
+        color=alt.Color("Année:N"),
+        tooltip=["Année", "Mois (nom)", alt.Tooltip("Température moyenne (°C):Q", format=".1f")]
+    )
+    st.altair_chart(chart_t, use_container_width=True)
+
+    # Barres des précipitations 2004/2024/2044
+    df_plot_p = pd.concat([
+        df_2004[["Mois (nom)", "Précipitations totales (mm)"]].assign(Année=2004),
+        df_2024[["Mois (nom)", "Précipitations totales (mm)"]].assign(Année=2024),
+        df_2044[["Mois (nom)", "Précipitations totales (mm)"]].assign(Année=2044)
+    ])
+    df_plot_p["Mois (nom)"] = pd.Categorical(df_plot_p["Mois (nom)"], categories=ordre_mois, ordered=True)
+
+    st.markdown("#### 🌧️ Précipitations totales mensuelles – comparaison 2004 / 2024 / 2044")
+    chart_p = alt.Chart(df_plot_p).mark_bar().encode(
+        x=alt.X("Mois (nom):O", sort=ordre_mois),
+        y=alt.Y("Précipitations totales (mm):Q"),
+        color=alt.Color("Année:N"),
+        tooltip=["Année", "Mois (nom)", alt.Tooltip("Précipitations totales (mm):Q", format=".1f")]
+    )
+    st.altair_chart(chart_p, use_container_width=True)
+
+    # Aire ET0 cumulée – comparaison
+    df_plot_e = pd.concat([
+        df_2004[["Mois (nom)", "Evapotranspiration cumulée (mm)"]].assign(Année=2004),
+        df_2024[["Mois (nom)", "Evapotranspiration cumulée (mm)"]].assign(Année=2024),
+        df_2044[["Mois (nom)", "Evapotranspiration cumulée (mm)"]].assign(Année=2044)
+    ])
+    df_plot_e["Mois (nom)"] = pd.Categorical(df_plot_e["Mois (nom)"], categories=ordre_mois, ordered=True)
+
+    st.markdown("#### 💧 Évapotranspiration cumulée – comparaison 2004 / 2024 / 2044")
+    chart_e = alt.Chart(df_plot_e).mark_area(opacity=0.4).encode(
+        x=alt.X("Mois (nom):O", sort=ordre_mois),
+        y=alt.Y("Evapotranspiration cumulée (mm):Q"),
+        color=alt.Color("Année:N"),
+        tooltip=["Année", "Mois (nom)", alt.Tooltip("Evapotranspiration cumulée (mm):Q", format=".1f")]
+    )
+    st.altair_chart(chart_e, use_container_width=True)
+
+    # Export 2044
+    csv_2044 = df_2044.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "📥 Télécharger les données projetées 2044",
+        data=csv_2044,
+        file_name="projection_2044.csv",
+        mime="text/csv"
+    )
