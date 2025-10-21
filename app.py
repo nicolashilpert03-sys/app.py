@@ -10,6 +10,8 @@ import pandas as pd
 import requests_cache
 from retry_requests import retry
 import altair as alt
+from sklearn.pipeline import Pipeline
+
 
 # ---------------------------------------------------------
 # Configuration générale de la page
