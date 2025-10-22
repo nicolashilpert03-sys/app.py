@@ -1,5 +1,5 @@
 # =========================================================
-# 🌤️ Mon Application Météo Simple — Beauvais (version "cours" + graphes propres)
+# 🌤️ Mon Application Météo Simple — Beauvais 
 # =========================================================
 
 import streamlit as st
@@ -11,8 +11,8 @@ import matplotlib.pyplot as plt
 # -----------------------------
 # Config & style global
 # -----------------------------
-st.set_page_config(page_title="Climat Beauvais (version cours)", layout="wide", page_icon="🌦️")
-st.markdown("<h1 style='text-align:center;'>🌤️ Climat de Beauvais — Version « Cours »</h1>", unsafe_allow_html=True)
+st.set_page_config(page_title="Climat Beauvais", layout="wide", page_icon="🌦️")
+st.markdown("<h1 style='text-align:center;'>🌤️ Climat de Beauvais </h1>", unsafe_allow_html=True)
 st.write("Données historiques via Open-Meteo (2004 & 2024), comparaisons et projection 2044 (régression linéaire maison + saisonnalité).")
 
 # style matplotlib (tailles, grilles, légendes)
@@ -97,7 +97,7 @@ def preparer_donnees_pour_ml(an_debut=2004, an_fin=2024):
     train["cos_saison"] = np.cos(angle)
     return train
 
-# régression maison
+# régression 
 def regression_lineaire_maison(X, y):
     Xb = np.column_stack([np.ones(len(X)), X])
     beta, *_ = np.linalg.lstsq(Xb, y, rcond=None)
@@ -202,7 +202,7 @@ with onglet_annee:
 # 🔮 Prédictions 2044
 # =========================================================
 with onglet_proj:
-    st.subheader("🔮 Projection 2044 (régression linéaire maison)")
+    st.subheader("🔮 Projection 2044 (régression linéaire )")
     with st.spinner("⏳ Calcul…"):
         train = preparer_donnees_pour_ml(2004, 2024)
         t2044 = faire_projection_simple(train, "Température", 2044)
