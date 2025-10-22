@@ -12,6 +12,12 @@ import requests_cache
 from retry_requests import retry
 import altair as alt
 
+# --- Changement ML ---
+from sklearn.linear_model import LinearRegression
+# La classe StandardScaler et Pipeline ne sont plus strictement nécessaires
+# pour une simple régression linéaire, mais conservons-les pour l'exemple.
+# --- Fin Changement ML ---
+
 # ---------------------------------------------------------
 # Configuration générale
 # ---------------------------------------------------------
@@ -20,10 +26,11 @@ st.markdown(
     "<h1 style='text-align:center;'>🌤️ Climat de Beauvais — 2004 / 2024 / Projection 2044</h1>",
     unsafe_allow_html=True
 )
-st.write("Données historiques : **Open-Meteo Archive API**. Projection 2044")
+st.write("Données historiques : **Open-Meteo Archive API**. Projection 2044 : **Régression Linéaire** simple (+ saisonnalité).")
 
 # ---------------------------------------------------------
 # Utilitaires : chargement et préparation Open-Meteo
+# (Le contenu de cette fonction n'a pas changé)
 # ---------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def charger_donnees(annee: int) -> pd.DataFrame:
@@ -138,6 +145,7 @@ onglet_comp, onglet_annee, onglet_proj = st.tabs([
 
 # =========================================================
 # 🆚 Onglet : Comparaison 2004 vs 2024
+# (Le contenu de cet onglet n'a pas changé)
 # =========================================================
 with onglet_comp:
     st.subheader("Comparaison 2004 / 2024 — Indicateurs annuels")
@@ -188,6 +196,7 @@ with onglet_comp:
 
 # =========================================================
 # 📅 Onglet : Vue par année
+# (Le contenu de cet onglet n'a pas changé)
 # =========================================================
 with onglet_annee:
     annee = st.radio("Choisissez une année :", [2004, 2024], horizontal=True)
@@ -209,6 +218,7 @@ with onglet_annee:
         chart_precip = alt.Chart(df_sel).mark_bar().encode(
             x=alt.X("Mois (nom):O", sort=ordre_mois),
             y=alt.Y("Précipitations totales (mm):Q"),
+            color=alt.value("steelblue"), # Couleur unique pour la vue annuelle
             tooltip=["Mois (nom)", "Précipitations totales (mm)"]
         )
         st.altair_chart(chart_precip, use_container_width=True)
@@ -231,11 +241,9 @@ with onglet_annee:
     )
 
 # =========================================================
-# 🔮 Onglet : Projection 2044 (Machine Learning) — paramètres figés
+# 🔮 Onglet : Projection 2044 (Machine Learning) — VERSION LINÉAIRE SIMPLE
 # =========================================================
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import Ridge
+# Remarque : Les fonctions charger_toutes_annees et proj_ml_2044 sont révisées.
 
 @st.cache_data(show_spinner=False)
 def charger_toutes_annees(debut=2004, fin=2024) -> pd.DataFrame:
@@ -254,21 +262,18 @@ def charger_toutes_annees(debut=2004, fin=2024) -> pd.DataFrame:
     return big
 
 @st.cache_data(show_spinner=False)
-def proj_ml_2044(df_all_years: pd.DataFrame, col: str, deg: int = 2, alpha: float = 1.0) -> pd.DataFrame:
-    """Projection 2044 : Ridge sur [Année, Année^2..] + sin/cos(mois)."""
+def proj_ml_2044(df_all_years: pd.DataFrame, col: str) -> pd.DataFrame:
+    """Projection 2044 : Régression Linéaire sur [Année] + sin/cos(mois)."""
+
+    # Variables d'entrée pour la régression : Année + Saisonnalité
     X = df_all_years[["Année", "sin_mois", "cos_mois"]].copy()
-    # Termes polynomiaux sur Année
-    for d in range(2, deg + 1):
-        X[f"Année^{d}"] = X["Année"] ** d
     y = df_all_years[col].values
 
-    pipe = Pipeline([
-        ("scaler", StandardScaler()),
-        ("ridge", Ridge(alpha=alpha, random_state=42))
-    ])
-    pipe.fit(X, y)
+    # Utilisation directe de LinearRegression (plus simple que le Pipeline)
+    model = LinearRegression()
+    model.fit(X, y)
 
-    # 2044 pour 12 mois
+    # Données à prédire (2044 pour 12 mois)
     mois = np.arange(1, 13)
     angle = 2 * np.pi * (mois - 1) / 12.0
     X_new = pd.DataFrame({
@@ -276,10 +281,8 @@ def proj_ml_2044(df_all_years: pd.DataFrame, col: str, deg: int = 2, alpha: floa
         "sin_mois": np.sin(angle),
         "cos_mois": np.cos(angle),
     })
-    for d in range(2, deg + 1):
-        X_new[f"Année^{d}"] = 2044 ** d
 
-    y_hat = pipe.predict(X_new)
+    y_hat = model.predict(X_new)
     out = pd.DataFrame({
         "Mois (numéro)": mois,
         "Mois (nom)": [ordre_mois[m-1] for m in mois],
@@ -288,26 +291,23 @@ def proj_ml_2044(df_all_years: pd.DataFrame, col: str, deg: int = 2, alpha: floa
     return out
 
 with onglet_proj:
-    st.subheader("Projection 2044")
-    st.caption("Modèle ML fixé : degré=2, alpha=1.0 (pas de curseurs).")
-
-    # Paramètres figés
-    deg, alpha = 2, 1.0
+    st.subheader("Projection 2044 (ML : Régression Linéaire simple + saisonnalité)")
+    st.caption("Modèle ML : Régression linéaire simple sur l'année pour la tendance.")
 
     with st.spinner("Entraînement sur 2004→2024..."):
         df_all_years = charger_toutes_annees(2004, 2024)
-        temp_2044 = proj_ml_2044(df_all_years, "Température moyenne (°C)", deg=deg, alpha=alpha)
-        prec_2044 = proj_ml_2044(df_all_years, "Précipitations totales (mm)", deg=deg, alpha=alpha)
-        et0_2044  = proj_ml_2044(df_all_years, "Evapotranspiration (mm)", deg=deg, alpha=alpha)
+        temp_2044 = proj_ml_2044(df_all_years, "Température moyenne (°C)")
+        prec_2044 = proj_ml_2044(df_all_years, "Précipitations totales (mm)")
+        et0_2044  = proj_ml_2044(df_all_years, "Evapotranspiration (mm)")
 
     df_2044_ml = temp_2044.merge(prec_2044, on=["Mois (numéro)", "Mois (nom)"]).merge(et0_2044, on=["Mois (numéro)", "Mois (nom)"])
     df_2044_ml["Précipitations cumulées (mm)"] = df_2044_ml["Précipitations totales (mm)"].cumsum().round(1)
     df_2044_ml["Evapotranspiration cumulée (mm)"] = df_2044_ml["Evapotranspiration (mm)"].cumsum().round(1)
 
-    st.markdown("#### 📅 Données mensuelles prévues — 2044 (ML)")
+    st.markdown("#### 📅 Données mensuelles prévues — 2044 (Linéaire)")
     st.dataframe(df_2044_ml, use_container_width=True)
 
-    # Graphiques comparatifs
+    # Graphiques comparatifs (inchangés)
     # Température
     df_plot_t = pd.concat([
         df_2004[["Mois (nom)", "Température moyenne (°C)"]].assign(Année=2004),
@@ -316,7 +316,7 @@ with onglet_proj:
     ], ignore_index=True)
     df_plot_t["Mois (nom)"] = pd.Categorical(df_plot_t["Mois (nom)"], categories=ordre_mois, ordered=True)
 
-    st.markdown("#### 🌡️ Température moyenne mensuelle — 2004 / 2024 / 2044 (ML)")
+    st.markdown("#### 🌡️ Température moyenne mensuelle — 2004 / 2024 / 2044 (Linéaire)")
     chart_t_ml = alt.Chart(df_plot_t).mark_line(point=True).encode(
         x=alt.X("Mois (nom):O", sort=ordre_mois),
         y=alt.Y("Température moyenne (°C):Q"),
@@ -333,7 +333,7 @@ with onglet_proj:
     ], ignore_index=True)
     df_plot_p["Mois (nom)"] = pd.Categorical(df_plot_p["Mois (nom)"], categories=ordre_mois, ordered=True)
 
-    st.markdown("#### 🌧️ Précipitations totales mensuelles — 2004 / 2024 / 2044 (ML)")
+    st.markdown("#### 🌧️ Précipitations totales mensuelles — 2004 / 2024 / 2044 (Linéaire)")
     chart_p_ml = alt.Chart(df_plot_p).mark_bar().encode(
         x=alt.X("Mois (nom):O", sort=ordre_mois),
         y=alt.Y("Précipitations totales (mm):Q"),
@@ -345,8 +345,8 @@ with onglet_proj:
     # Export
     csv_ml = df_2044_ml.to_csv(index=False).encode("utf-8")
     st.download_button(
-        "📥 Télécharger la projection 2044 (ML)",
+        "📥 Télécharger la projection 2044 (Linéaire)",
         data=csv_ml,
-        file_name="projection_2044_ML.csv",
+        file_name="projection_2044_lineaire.csv",
         mime="text/csv"
     )
