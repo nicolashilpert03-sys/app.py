@@ -20,7 +20,7 @@ st.markdown(
     "<h1 style='text-align:center;'>🌤️ Climat de Beauvais — 2004 / 2024 / Projection 2044</h1>",
     unsafe_allow_html=True
 )
-st.write("Données historiques : **Open-Meteo Archive API**. Projection 2044 : **ML** (Ridge + saisonnalité).")
+st.write("Données historiques : **Open-Meteo Archive API**. Projection 2044")
 
 # ---------------------------------------------------------
 # Utilitaires : chargement et préparation Open-Meteo
