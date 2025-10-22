@@ -288,7 +288,7 @@ def proj_ml_2044(df_all_years: pd.DataFrame, col: str, deg: int = 2, alpha: floa
     return out
 
 with onglet_proj:
-    st.subheader("Projection 2044 (ML : Ridge polynomiale + saisonnalité)")
+    st.subheader("Projection 2044")
     st.caption("Modèle ML fixé : degré=2, alpha=1.0 (pas de curseurs).")
 
     # Paramètres figés
