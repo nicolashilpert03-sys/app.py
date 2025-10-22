@@ -1,4 +1,4 @@
-# 🌤️ Mon Application Météo Simple — Beauvais (version débutant·e avec print)
+#  Application Météo — Beauvais 
 
 import streamlit as st
 import requests
@@ -11,16 +11,16 @@ import matplotlib.pyplot as plt
 # ----------------------------
 print("=== Initialisation de l'application ===")
 
-st.set_page_config(page_title="Climat Beauvais (débutant avec print)", layout="wide", page_icon="🌦️")
-st.title("🌤️ Climat de Beauvais — Version Débutant·e avec print()")
-st.write("On compare 2004 et 2024, et on fait une **projection simple** pour 2044.")
+st.set_page_config(page_title="Climat Beauvais", layout="wide", page_icon="🌦️")
+st.title("Climat de Beauvais")
+st.write("On compare 2004 et 2024, et on fait une projection pour 2044.")
 
 MOIS = ["Janvier","Février","Mars","Avril","Mai","Juin",
         "Juillet","Août","Septembre","Octobre","Novembre","Décembre"]
 
-# ----------------------------
+
 # 1) Télécharger + préparer UNE année
-# ----------------------------
+
 def charger_annee(annee):
     print(f"\n--- Téléchargement des données pour {annee} ---")
     url = "https://archive-api.open-meteo.com/v1/archive"
@@ -37,7 +37,7 @@ def charger_annee(annee):
     print(f"Statut de la requête : {r.status_code}")
     r.raise_for_status()
     data = r.json()["daily"]
-    print("✅ Données reçues avec succès")
+    print("Données reçues avec succès")
 
     print("Création du DataFrame pandas...")
     df = pd.DataFrame({
@@ -60,31 +60,31 @@ def charger_annee(annee):
     dfm["ET0 cumul (mm)"] = dfm["ET0 (mm)"].cumsum()
     dfm = dfm.round(1)
 
-    print(f"✅ Année {annee} préparée avec succès — {len(dfm)} lignes")
+    print(f"Année {annee} préparée avec succès — {len(dfm)} lignes")
     print(dfm.head())
     return dfm
 
-# ----------------------------
+
 # 2) Charger 2004 et 2024
-# ----------------------------
+
 print("\n=== Chargement des données 2004 et 2024 ===")
 with st.spinner("⏳ Téléchargement des données 2004 et 2024..."):
     df_2004 = charger_annee(2004)
     df_2024 = charger_annee(2024)
-print("✅ Données chargées avec succès pour 2004 et 2024")
+print("Données chargées avec succès pour 2004 et 2024")
 
-# ----------------------------
+
 # 3) Onglets
-# ----------------------------
+
 tab_comp, tab_annee, tab_proj = st.tabs([
-    "🆚 Comparaison 2004 vs 2024",
-    "📅 Une seule année",
-    "🔮 Projection 2044 (très simple)"
+    "Comparaison 2004 vs 2024",
+    "Une seule année",
+    "Projection 2044 (très simple)"
 ])
 
-# =========================================================
-# 🆚 Comparaison 2004 vs 2024
-# =========================================================
+
+# Comparaison 2004 vs 2024
+
 with tab_comp:
     print("\n=== Onglet Comparaison ===")
     c1, c2, c3 = st.columns(3)
@@ -101,13 +101,13 @@ with tab_comp:
     c3.metric("ET0 totale 2024", f"{df_2024['ET0 (mm)'].sum():.0f} mm", f"{et0_diff:+.0f} vs 2004")
 
     print("Création des graphiques...")
-    st.subheader("🌡️ Températures mensuelles")
+    st.subheader("Températures mensuelles")
     fig, ax = plt.subplots(figsize=(4, 2.5))
     ax.plot(df_2004["Nom du Mois"], df_2004["Température"], marker="o", label="2004")
     ax.plot(df_2024["Nom du Mois"], df_2024["Température"], marker="o", label="2024")
     ax.legend(); ax.set_xlabel("Mois"); ax.set_ylabel("°C"); plt.xticks(rotation=45)
     st.pyplot(fig, use_container_width=False, clear_figure=True)
-    print("✅ Graphique température affiché")
+    print("Graphique température affiché")
 
     st.subheader("🌧️ Pluie mensuelle")
     fig, ax = plt.subplots(figsize=(4, 2.5))
@@ -117,7 +117,7 @@ with tab_comp:
     ax.set_xticks(x, df_2024["Nom du Mois"]); plt.xticks(rotation=45)
     ax.legend(); ax.set_ylabel("mm")
     st.pyplot(fig, use_container_width=False, clear_figure=True)
-    print("✅ Graphique pluie affiché")
+    print("Graphique pluie affiché")
 
     print("Création du tableau comparatif...")
     comp = pd.DataFrame({
@@ -132,13 +132,13 @@ with tab_comp:
         "ET0 2024 (mm)": df_2024["ET0 (mm)"],
         "Δ ET0 (mm)": (df_2024["ET0 (mm)"] - df_2004["ET0 (mm)"]).round(1),
     })
-    print("✅ Tableau créé :")
+    print(" Tableau créé :")
     print(comp.head())
     st.dataframe(comp, use_container_width=True)
 
-# =========================================================
-# 📅 Une seule année
-# =========================================================
+
+# Une seule année
+
 with tab_annee:
     print("\n=== Onglet Une seule année ===")
     an = st.radio("Choisis l'année :", [2004, 2024], horizontal=True)
@@ -150,11 +150,11 @@ with tab_annee:
     ax.plot(df_sel["Nom du Mois"], df_sel["Température"], marker="o")
     ax.set_xlabel("Mois"); ax.set_ylabel("°C"); plt.xticks(rotation=45)
     st.pyplot(fig, use_container_width=False, clear_figure=True)
-    print("✅ Graphique température année unique affiché")
+    print("Graphique température année unique affiché")
 
-# =========================================================
-# 🔮 Projection 2044 (ultra simple)
-# =========================================================
+
+# Projection 2044 (ultra simple)
+
 with tab_proj:
     print("\n=== Onglet Projection ===")
     st.write("Projection très simple : on prolonge la tendance (2004→2024) jusqu’à 2044.")
@@ -171,18 +171,18 @@ with tab_proj:
     })
     df_2044["Pluie cumul (mm)"] = df_2044["Pluie (mm)"].cumsum().round(1)
     df_2044["ET0 cumul (mm)"] = df_2044["ET0 (mm)"].cumsum().round(1)
-    print("✅ Tableau 2044 prêt :")
+    print("Tableau 2044 prêt :")
     print(df_2044.head())
 
     st.dataframe(df_2044, use_container_width=True)
 
-    st.markdown("#### 🌡️ Températures 2004 / 2024 / 2044")
+    st.markdown("#### Températures 2004 / 2024 / 2044")
     fig, ax = plt.subplots(figsize=(4, 2.5))
     ax.plot(df_2004["Nom du Mois"], df_2004["Température"], label="2004")
     ax.plot(df_2024["Nom du Mois"], df_2024["Température"], label="2024")
     ax.plot(df_2044["Nom du Mois"], df_2044["Température"], label="2044 (proj.)")
     ax.legend(); plt.xticks(rotation=45)
     st.pyplot(fig, use_container_width=False, clear_figure=True)
-    print("✅ Graphique température projection affiché")
+    print("Graphique température projection affiché")
 
-print("\n=== Fin du script — tout semble OK ✅ ===")
+print("\n=== Fin du script — tout semble OK ===")
