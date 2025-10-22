@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 
 # Réglages de base
 
-print("=== Initialisation de l'application ===")
+print(" Initialisation de l'application ")
 
 st.set_page_config(page_title="Climat Beauvais", layout="wide")
 st.title("Climat de Beauvais")
@@ -22,7 +22,7 @@ MOIS = ["Janvier","Février","Mars","Avril","Mai","Juin",
 # 1) Télécharger et préparer UNE année
 
 def charger_annee(annee):
-    print(f"\n--- Téléchargement des données pour {annee} ---")
+    print(f"\n Téléchargement des données pour {annee} ")
     url = "https://archive-api.open-meteo.com/v1/archive"
     params = {
         "latitude": 49.43,
@@ -37,7 +37,7 @@ def charger_annee(annee):
     print(f"Statut de la requête : {r.status_code}")
     r.raise_for_status()
     data = r.json()["daily"]
-    print("Données reçues avec succès")
+    print("Données reçues")
 
     print("Création du DataFrame pandas")
     df = pd.DataFrame({
@@ -48,7 +48,7 @@ def charger_annee(annee):
     })
     print(f"Taille du tableau initial : {df.shape}")
 
-    print("Ajout du numéro de mois et agrégation mensuelle...")
+    print("Ajout du numéro de mois et agrégation mensuelle")
     df["mois_num"] = df["date"].dt.month
     dfm = df.groupby("mois_num", as_index=False).agg({
         "Température": "mean",
@@ -146,6 +146,7 @@ with tab_annee:
     print(f"Année sélectionnée : {an}")
     st.dataframe(df_sel, use_container_width=True)
 
+    st.markdown("Graphique températures")
     fig, ax = plt.subplots(figsize=(4, 2.5))
     ax.plot(df_sel["Nom du Mois"], df_sel["Température"], marker="o")
     ax.set_xlabel("Mois"); ax.set_ylabel("°C"); plt.xticks(rotation=45)
@@ -156,13 +157,13 @@ with tab_annee:
 # Projection 2044 (ultra simple)
 
 with tab_proj:
-    print("\n=== Onglet Projection ===")
-    st.write("Projection très simple : on prolonge la tendance (2004→2024) jusqu’à 2044.")
+    print("\n Onglet Projection ")
+    st.write("on prolonge la tendance (2004→2024) jusqu’à 2044.")
     temp_2044 = (df_2024["Température"] + (df_2024["Température"] - df_2004["Température"])).round(1)
     pluie_2044 = (df_2024["Pluie (mm)"] + (df_2024["Pluie (mm)"] - df_2004["Pluie (mm)"])).round(1)
     et0_2044   = (df_2024["ET0 (mm)"] + (df_2024["ET0 (mm)"] - df_2004["ET0 (mm)"])).round(1)
 
-    print("Calcul des valeurs projetées pour 2044 terminé.")
+    print("Calcul des valeurs projetées pour 2044 terminé")
     df_2044 = pd.DataFrame({
         "Nom du Mois": df_2024["Nom du Mois"],
         "Température": temp_2044,
