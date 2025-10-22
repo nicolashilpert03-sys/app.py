@@ -1,352 +1,304 @@
 # =========================================================
-# 🌤️ Application Streamlit — Climat de Beauvais (2004 / 2024 / 2044)
+# 🌤️ Mon Application Météo Simple — Beauvais (version "cours")
 # =========================================================
-# Prérequis :
-# pip install streamlit openmeteo-requests requests-cache retry-requests pandas numpy altair scikit-learn
+# Ce qu'on utilise ici correspond au cours : requests + pandas/numpy,
+# groupby/agg, et régression linéaire faite "maison" avec numpy.linalg.lstsq.
+# Graphiques avec matplotlib (pas d'Altair / pas de scikit-learn).
+# =========================================================
 
 import streamlit as st
-import openmeteo_requests
+import requests
 import pandas as pd
 import numpy as np
-import requests_cache
-from retry_requests import retry
-import altair as alt
-
-# --- Changement ML ---
-from sklearn.linear_model import LinearRegression
-# La classe StandardScaler et Pipeline ne sont plus strictement nécessaires
-# pour une simple régression linéaire, mais conservons-les pour l'exemple.
-# --- Fin Changement ML ---
+import matplotlib.pyplot as plt
 
 # ---------------------------------------------------------
-# Configuration générale
+# Configuration de la page
 # ---------------------------------------------------------
-st.set_page_config(page_title="Climat Beauvais", layout="wide", page_icon="🌦️")
+st.set_page_config(page_title="Climat Beauvais (version cours)", layout="wide", page_icon="🌦️")
 st.markdown(
-    "<h1 style='text-align:center;'>🌤️ Climat de Beauvais — 2004 / 2024 / Projection 2044</h1>",
+    "<h1 style='text-align:center;'>🌤️ Climat de Beauvais — Version « Cours »</h1>",
     unsafe_allow_html=True
 )
-st.write("Données historiques : **Open-Meteo Archive API**. Projection 2044 : **Régression Linéaire** simple (+ saisonnalité).")
+st.write("Données historiques via Open-Meteo (2004 & 2024), comparaisons, et projection 2044 avec une régression linéaire **faite maison** (+ saisonnalité sin/cos).")
 
 # ---------------------------------------------------------
-# Utilitaires : chargement et préparation Open-Meteo
-# (Le contenu de cette fonction n'a pas changé)
+# Utilitaires "cours"
 # ---------------------------------------------------------
-@st.cache_data(show_spinner=False)
-def charger_donnees(annee: int) -> pd.DataFrame:
-    """Charge les données journalières Open-Meteo et agrège au mois."""
-    cache_session = requests_cache.CachedSession('.cache', expire_after=-1)
-    retry_session = retry(cache_session, retries=5, backoff_factor=0.2)
-    openmeteo = openmeteo_requests.Client(session=retry_session)
 
+ORDRE_MOIS = ["Janvier","Février","Mars","Avril","Mai","Juin",
+              "Juillet","Août","Septembre","Octobre","Novembre","Décembre"]
+NOMS_MOIS = {i+1: ORDRE_MOIS[i] for i in range(12)}
+
+def telecharger_journalier(annee, lat=49.43, lon=2.08, tz="Europe/Paris"):
+    """
+    Récupère les séries journalières depuis l'API Open-Meteo avec requests.
+    On reste dans l'esprit du cours : pas de client spécialisé.
+    """
     url = "https://archive-api.open-meteo.com/v1/archive"
     params = {
-        "latitude": 49.4333,
-        "longitude": 2.0833,
+        "latitude": lat,
+        "longitude": lon,
         "start_date": f"{annee}-01-01",
         "end_date": f"{annee}-12-31",
-        "daily": [
-            "temperature_2m_mean",
-            "weather_code",
-            "precipitation_sum",
-            "wind_direction_10m_dominant",
-            "et0_fao_evapotranspiration"
-        ],
-        "timezone": "Europe/Paris",
+        "daily": "temperature_2m_mean,precipitation_sum,et0_fao_evapotranspiration",
+        "timezone": tz
     }
-
-    responses = openmeteo.weather_api(url, params=params)
-    if not responses:
-        st.error("Aucune réponse de l'API Open-Meteo.")
-        st.stop()
-    response = responses[0]
-    daily = response.Daily()
-
-    # Extraction
-    temperature = daily.Variables(0).ValuesAsNumpy()
-    weather_code = daily.Variables(1).ValuesAsNumpy()
-    precipitations = daily.Variables(2).ValuesAsNumpy()
-    wind_direction = daily.Variables(3).ValuesAsNumpy()
-    evapotranspiration = daily.Variables(4).ValuesAsNumpy()
-
-    t0 = pd.to_datetime(daily.Time(), unit="s", utc=True).tz_convert("Europe/Paris")
-    t1_excl = pd.to_datetime(daily.TimeEnd(), unit="s", utc=True).tz_convert("Europe/Paris")
-    dt = pd.Timedelta(seconds=daily.Interval())
-    dates = pd.date_range(start=t0, end=t1_excl - dt, freq=dt)
+    r = requests.get(url, params=params, timeout=60)
+    r.raise_for_status()
+    data = r.json()
+    daily = data["daily"]
 
     df = pd.DataFrame({
-        "date": dates,
-        "temperature_2m_mean": temperature,
-        "weather_code": weather_code,
-        "precipitation_sum": precipitations,
-        "wind_direction_10m_dominant": wind_direction,
-        "et0_fao_evapotranspiration": evapotranspiration
+        "date": pd.to_datetime(daily["time"]),
+        "Température": daily["temperature_2m_mean"],
+        "Pluie (mm)": daily["precipitation_sum"],
+        "ET0 (mm)": daily["et0_fao_evapotranspiration"]
     })
-
     df["mois"] = df["date"].dt.month
+    return df
 
-    # Agrégation mensuelle
-    def mode_as_int(series):
-        m = series.mode()
-        return int(m.iloc[0]) if not m.empty else int(round(series.iloc[0]))
+def agregation_mensuelle(df):
+    """
+    GroupBy / Aggregate (vu en cours) :
+      - Température -> moyenne mensuelle
+      - Pluie/ET0 -> sommes mensuelles
+    + colonnes cumulées & noms des mois
+    """
+    df_m = (
+        df.groupby("mois", as_index=False)
+          .agg({"Température":"mean", "Pluie (mm)":"sum", "ET0 (mm)":"sum"})
+    )
+    df_m["Nom du Mois"] = df_m["mois"].map(NOMS_MOIS)
+    df_m["Pluie Totale Progressive (mm)"] = df_m["Pluie (mm)"].cumsum()
+    df_m["ET0 Totale Progressive (mm)"] = df_m["ET0 (mm)"].cumsum()
+    return df_m.round(1)
 
-    df_mensuel = df.groupby("mois").agg({
-        "temperature_2m_mean": "mean",
-        "precipitation_sum": "sum",
-        "et0_fao_evapotranspiration": "sum",
-        "wind_direction_10m_dominant": mode_as_int,
-        "weather_code": mode_as_int
-    }).reset_index()
+def telecharger_et_preparer_donnees(annee):
+    return agregation_mensuelle(telecharger_journalier(annee))
 
-    mois_noms = {
-        1: "Janvier", 2: "Février", 3: "Mars", 4: "Avril",
-        5: "Mai", 6: "Juin", 7: "Juillet", 8: "Août",
-        9: "Septembre", 10: "Octobre", 11: "Novembre", 12: "Décembre"
-    }
-    df_mensuel["Mois (nom)"] = df_mensuel["mois"].map(mois_noms)
+def preparer_donnees_pour_ml(an_debut=2004, an_fin=2024):
+    """
+    Assemble les données mensuelles de plusieurs années.
+    Ajoute les features de saisonnalité sin/cos (vu en cours : features engineering simple).
+    """
+    all_years = []
+    for an in range(an_debut, an_fin+1):
+        df_m = telecharger_et_preparer_donnees(an)
+        df_m["Année"] = an
+        all_years.append(df_m[["Année","mois","Température","Pluie (mm)","ET0 (mm)"]])
+    train = pd.concat(all_years, ignore_index=True)
 
-    # Nettoyage / renommage
-    df_mensuel.rename(columns={
-        "mois": "Mois (numéro)",
-        "temperature_2m_mean": "Température moyenne (°C)",
-        "precipitation_sum": "Précipitations totales (mm)",
-        "et0_fao_evapotranspiration": "Evapotranspiration (mm)",
-        "wind_direction_10m_dominant": "Direction du vent dominante",
-    }, inplace=True)
+    angle = 2 * np.pi * (train["mois"] - 1) / 12.0
+    train["sin_saison"] = np.sin(angle)
+    train["cos_saison"] = np.cos(angle)
+    return train
 
-    # Cumulés
-    df_mensuel["Précipitations cumulées (mm)"] = df_mensuel["Précipitations totales (mm)"].cumsum()
-    df_mensuel["Evapotranspiration cumulée (mm)"] = df_mensuel["Evapotranspiration (mm)"].cumsum()
+def regression_lineaire_maison(X, y):
+    """
+    Régression linéaire multiple "maison" avec numpy.linalg.lstsq :
+    X : matrice (n, p) — on ajoute nous-mêmes la colonne de biais.
+    y : vecteur (n,)
+    Retourne les coefficients bêta (y ≈ Xb).
+    """
+    # Ajout du biais (constante)
+    Xb = np.column_stack([np.ones(len(X)), X])
+    beta, *_ = np.linalg.lstsq(Xb, y, rcond=None)
+    return beta  # beta[0] = intercept, beta[1:] = coeffs
 
-    # Arrondis
-    for c in ["Température moyenne (°C)", "Précipitations totales (mm)", "Evapotranspiration (mm)",
-              "Précipitations cumulées (mm)", "Evapotranspiration cumulée (mm)"]:
-        df_mensuel[c] = df_mensuel[c].round(1)
+def predire_reg_lin_maison(X, beta):
+    Xb = np.column_stack([np.ones(len(X)), X])
+    return Xb @ beta
 
-    return df_mensuel
+def faire_projection_simple(train_df, nom_cible, an_cible=2044):
+    """
+    Entraîne la régression (Année + sin/cos) puis prédit les 12 mois de an_cible.
+    """
+    X_train = train_df[["Année","sin_saison","cos_saison"]].to_numpy()
+    y = train_df[nom_cible].to_numpy()
+
+    beta = regression_lineaire_maison(X_train, y)
+
+    mois = np.arange(1, 13)
+    angle = 2 * np.pi * (mois - 1) / 12.0
+    X_pred = np.column_stack([
+        np.full(12, an_cible, dtype=float),
+        np.sin(angle),
+        np.cos(angle)
+    ])
+    y_hat = predire_reg_lin_maison(X_pred, beta)
+
+    out = pd.DataFrame({
+        "mois": mois,
+        "Nom du Mois": [ORDRE_MOIS[m-1] for m in mois],
+        nom_cible: np.round(y_hat, 1)
+    })
+    return out
+
+def metrique_mae(y_true, y_pred):
+    """MAE vue en cours (moyenne des erreurs absolues)."""
+    return float(np.mean(np.abs(y_true - y_pred)))
 
 # ---------------------------------------------------------
-# Chargement des deux années de référence
+# Télécharger les deux années de base
 # ---------------------------------------------------------
-with st.spinner("⏳ Chargement des données 2004 et 2024..."):
-    df_2004 = charger_donnees(2004)
-    df_2024 = charger_donnees(2024)
-
-ordre_mois = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"]
+with st.spinner("⏳ Téléchargement des données 2004 et 2024..."):
+    df_2004 = telecharger_et_preparer_donnees(2004)
+    df_2024 = telecharger_et_preparer_donnees(2024)
 
 # ---------------------------------------------------------
-# Tabs UI — 3 onglets seulement
+# Tabs
 # ---------------------------------------------------------
 onglet_comp, onglet_annee, onglet_proj = st.tabs([
     "🆚 Comparaison 2004 vs 2024",
-    "📅 Vue par année",
-    "🔮 Projection 2044 (ML)"
+    "📅 Une seule année",
+    "🔮 Prédictions 2044"
 ])
 
 # =========================================================
-# 🆚 Onglet : Comparaison 2004 vs 2024
-# (Le contenu de cet onglet n'a pas changé)
+# 🆚 Comparaison 2004 vs 2024
 # =========================================================
 with onglet_comp:
-    st.subheader("Comparaison 2004 / 2024 — Indicateurs annuels")
+    st.subheader("Chiffres annuels : 2004 vs 2024")
+
     c1, c2, c3 = st.columns(3)
-    c1.metric(
-        "Température moyenne (°C) — 2024",
-        f"{df_2024['Température moyenne (°C)'].mean():.1f}",
-        f"{df_2024['Température moyenne (°C)'].mean() - df_2004['Température moyenne (°C)'].mean():+.1f}"
-    )
-    c2.metric(
-        "Précipitations totales (mm) — 2024",
-        f"{df_2024['Précipitations totales (mm)'].sum():.1f}",
-        f"{df_2024['Précipitations totales (mm)'].sum() - df_2004['Précipitations totales (mm)'].sum():+.1f}"
-    )
-    c3.metric(
-        "ET0 (mm) — 2024",
-        f"{df_2024['Evapotranspiration (mm)'].sum():.1f}",
-        f"{df_2024['Evapotranspiration (mm)'].sum() - df_2004['Evapotranspiration (mm)'].sum():+.1f}"
-    )
+    temp_2024, temp_2004 = df_2024["Température"].mean(), df_2004["Température"].mean()
+    pluie_2024, pluie_2004 = df_2024["Pluie (mm)"].sum(), df_2004["Pluie (mm)"].sum()
+    et0_2024, et0_2004 = df_2024["ET0 (mm)"].sum(), df_2004["ET0 (mm)"].sum()
 
-    # Graphiques comparés
-    left = df_2004[["Mois (nom)", "Température moyenne (°C)"]].assign(Année=2004)
-    right = df_2024[["Mois (nom)", "Température moyenne (°C)"]].assign(Année=2024)
-    df_temp_all = pd.concat([left, right], ignore_index=True)
-    df_temp_all["Mois (nom)"] = pd.Categorical(df_temp_all["Mois (nom)"], categories=ordre_mois, ordered=True)
+    c1.metric("Moyenne Temp. 2024", f"{temp_2024:.1f} °C", f"{(temp_2024-temp_2004):+.1f} vs 2004")
+    c2.metric("Total Pluie 2024", f"{pluie_2024:.1f} mm", f"{(pluie_2024-pluie_2004):+.1f} vs 2004")
+    c3.metric("Total ET0 2024", f"{et0_2024:.1f} mm", f"{(et0_2024-et0_2004):+.1f} vs 2004")
 
-    st.markdown("#### 🌡️ Température moyenne mensuelle (comparée)")
-    chart_t = alt.Chart(df_temp_all).mark_line(point=True).encode(
-        x=alt.X("Mois (nom):O", sort=ordre_mois),
-        y=alt.Y("Température moyenne (°C):Q"),
-        color="Année:N",
-        tooltip=["Année", "Mois (nom)", alt.Tooltip("Température moyenne (°C):Q", format=".1f")]
-    )
-    st.altair_chart(chart_t, use_container_width=True)
+    # Graph Températures (matplotlib)
+    st.markdown("#### 🌡️ Températures mensuelles (2004 vs 2024)")
+    fig1, ax1 = plt.subplots()
+    ax1.plot(df_2004["Nom du Mois"], df_2004["Température"], marker="o", label="2004")
+    ax1.plot(df_2024["Nom du Mois"], df_2024["Température"], marker="o", label="2024")
+    ax1.set_xlabel("Mois"); ax1.set_ylabel("Température (°C)")
+    ax1.legend(); ax1.grid(True, alpha=0.3)
+    plt.xticks(rotation=45)
+    st.pyplot(fig1, clear_figure=True)
 
-    st.markdown("#### 🌧️ Précipitations totales mensuelles (comparées)")
-    p_left = df_2004[["Mois (nom)", "Précipitations totales (mm)"]].assign(Année=2004)
-    p_right = df_2024[["Mois (nom)", "Précipitations totales (mm)"]].assign(Année=2024)
-    df_p_all = pd.concat([p_left, p_right], ignore_index=True)
-    df_p_all["Mois (nom)"] = pd.Categorical(df_p_all["Mois (nom)"], categories=ordre_mois, ordered=True)
-    chart_p = alt.Chart(df_p_all).mark_bar().encode(
-        x=alt.X("Mois (nom):O", sort=ordre_mois),
-        y=alt.Y("Précipitations totales (mm):Q"),
-        color="Année:N",
-        tooltip=["Année", "Mois (nom)", alt.Tooltip("Précipitations totales (mm):Q", format=".1f")]
-    )
-    st.altair_chart(chart_p, use_container_width=True)
+    # Graph Pluies (matplotlib)
+    st.markdown("#### 🌧️ Pluies mensuelles (2004 vs 2024)")
+    width = 0.4
+    x = np.arange(12)
+    fig2, ax2 = plt.subplots()
+    ax2.bar(x - width/2, df_2004["Pluie (mm)"], width=width, label="2004")
+    ax2.bar(x + width/2, df_2024["Pluie (mm)"], width=width, label="2024")
+    ax2.set_xticks(x, ORDRE_MOIS, rotation=45)
+    ax2.set_ylabel("Pluie (mm)")
+    ax2.legend(); ax2.grid(True, axis="y", alpha=0.3)
+    st.pyplot(fig2, clear_figure=True)
 
 # =========================================================
-# 📅 Onglet : Vue par année
-# (Le contenu de cet onglet n'a pas changé)
+# 📅 Une seule année
 # =========================================================
 with onglet_annee:
-    annee = st.radio("Choisissez une année :", [2004, 2024], horizontal=True)
-    df_sel = df_2004 if annee == 2004 else df_2024
-    st.markdown(f"### 📅 Données mensuelles — {annee}")
-    st.dataframe(df_sel, use_container_width=True)
+    annee_choisie = st.radio("Choisis l'année :", [2004, 2024], horizontal=True)
+    df_a = df_2004 if annee_choisie == 2004 else df_2024
+
+    st.markdown(f"### 📅 Données {annee_choisie}")
+    st.dataframe(df_a, use_container_width=True)
 
     col1, col2 = st.columns(2)
     with col1:
-        st.markdown("#### 🌡️ Température moyenne mensuelle")
-        chart_temp = alt.Chart(df_sel).mark_line(point=True).encode(
-            x=alt.X("Mois (nom):O", sort=ordre_mois),
-            y=alt.Y("Température moyenne (°C):Q"),
-            tooltip=["Mois (nom)", "Température moyenne (°C)"]
-        )
-        st.altair_chart(chart_temp, use_container_width=True)
+        st.markdown("#### 🌡️ Température par mois")
+        fig3, ax3 = plt.subplots()
+        ax3.plot(df_a["Nom du Mois"], df_a["Température"], marker="o")
+        ax3.set_xlabel("Mois"); ax3.set_ylabel("Température (°C)")
+        ax3.grid(True, alpha=0.3); plt.xticks(rotation=45)
+        st.pyplot(fig3, clear_figure=True)
+
     with col2:
-        st.markdown("#### 🌧️ Précipitations totales mensuelles")
-        chart_precip = alt.Chart(df_sel).mark_bar().encode(
-            x=alt.X("Mois (nom):O", sort=ordre_mois),
-            y=alt.Y("Précipitations totales (mm):Q"),
-            color=alt.value("steelblue"), # Couleur unique pour la vue annuelle
-            tooltip=["Mois (nom)", "Précipitations totales (mm)"]
-        )
-        st.altair_chart(chart_precip, use_container_width=True)
+        st.markdown("#### 🌧️ Pluie par mois")
+        fig4, ax4 = plt.subplots()
+        ax4.bar(df_a["Nom du Mois"], df_a["Pluie (mm)"])
+        ax4.set_xlabel("Mois"); ax4.set_ylabel("Pluie (mm)")
+        ax4.grid(True, axis="y", alpha=0.3); plt.xticks(rotation=45)
+        st.pyplot(fig4, clear_figure=True)
 
-    st.markdown("#### 💧 Évapotranspiration cumulée annuelle")
-    chart_et0 = alt.Chart(df_sel).mark_area(opacity=0.6).encode(
-        x=alt.X("Mois (nom):O", sort=ordre_mois),
-        y=alt.Y("Evapotranspiration cumulée (mm):Q"),
-        tooltip=["Mois (nom)", "Evapotranspiration cumulée (mm)"]
-    )
-    st.altair_chart(chart_et0, use_container_width=True)
+    st.markdown("#### 💧 ET0 Totale Progressive (cumul)")
+    fig5, ax5 = plt.subplots()
+    ax5.fill_between(df_a["Nom du Mois"], df_a["ET0 Totale Progressive (mm)"], alpha=0.6, step="mid")
+    ax5.set_xlabel("Mois"); ax5.set_ylabel("ET0 cumulée (mm)")
+    ax5.grid(True, alpha=0.3); plt.xticks(rotation=45)
+    st.pyplot(fig5, clear_figure=True)
 
-    # Téléchargement
-    csv = df_sel.to_csv(index=False).encode("utf-8")
+    csv = df_a.to_csv(index=False).encode("utf-8")
     st.download_button(
-        label=f"📥 Télécharger les données {annee}",
+        label=f"📥 Télécharger {annee_choisie}",
         data=csv,
-        file_name=f"climat_beauvais_{annee}.csv",
+        file_name=f"climat_beauvais_{annee_choisie}_version_cours.csv",
         mime="text/csv"
     )
 
 # =========================================================
-# 🔮 Onglet : Projection 2044 (Machine Learning) — VERSION LINÉAIRE SIMPLE
+# 🔮 Prédictions 2044 (ML maison)
 # =========================================================
-# Remarque : Les fonctions charger_toutes_annees et proj_ml_2044 sont révisées.
-
-@st.cache_data(show_spinner=False)
-def charger_toutes_annees(debut=2004, fin=2024) -> pd.DataFrame:
-    frames = []
-    for an in range(debut, fin + 1):
-        df = charger_donnees(an).copy()
-        df["Année"] = an
-        frames.append(df[[
-            "Année", "Mois (numéro)", "Mois (nom)",
-            "Température moyenne (°C)", "Précipitations totales (mm)", "Evapotranspiration (mm)"
-        ]])
-    big = pd.concat(frames, ignore_index=True)
-    # Saisonnalité
-    angle = 2 * np.pi * (big["Mois (numéro)"] - 1) / 12.0
-    big["sin_mois"], big["cos_mois"] = np.sin(angle), np.cos(angle)
-    return big
-
-@st.cache_data(show_spinner=False)
-def proj_ml_2044(df_all_years: pd.DataFrame, col: str) -> pd.DataFrame:
-    """Projection 2044 : Régression Linéaire sur [Année] + sin/cos(mois)."""
-
-    # Variables d'entrée pour la régression : Année + Saisonnalité
-    X = df_all_years[["Année", "sin_mois", "cos_mois"]].copy()
-    y = df_all_years[col].values
-
-    # Utilisation directe de LinearRegression (plus simple que le Pipeline)
-    model = LinearRegression()
-    model.fit(X, y)
-
-    # Données à prédire (2044 pour 12 mois)
-    mois = np.arange(1, 13)
-    angle = 2 * np.pi * (mois - 1) / 12.0
-    X_new = pd.DataFrame({
-        "Année": 2044,
-        "sin_mois": np.sin(angle),
-        "cos_mois": np.cos(angle),
-    })
-
-    y_hat = model.predict(X_new)
-    out = pd.DataFrame({
-        "Mois (numéro)": mois,
-        "Mois (nom)": [ordre_mois[m-1] for m in mois],
-        col: np.round(y_hat, 1)
-    })
-    return out
-
 with onglet_proj:
-    st.subheader("Projection 2044 (ML : Régression Linéaire simple + saisonnalité)")
-    st.caption("Modèle ML : Régression linéaire simple sur l'année pour la tendance.")
+    st.subheader("🔮 Projection 2044 (régression linéaire « maison »)")
+    st.caption("Modèle simple : cible ~ Année + sin(mois) + cos(mois). L’objectif est pédagogique (tendance).")
 
-    with st.spinner("Entraînement sur 2004→2024..."):
-        df_all_years = charger_toutes_annees(2004, 2024)
-        temp_2044 = proj_ml_2044(df_all_years, "Température moyenne (°C)")
-        prec_2044 = proj_ml_2044(df_all_years, "Précipitations totales (mm)")
-        et0_2044  = proj_ml_2044(df_all_years, "Evapotranspiration (mm)")
+    with st.spinner("⏳ Préparation & entraînement..."):
+        train = preparer_donnees_pour_ml(2004, 2024)
+        t2044 = faire_projection_simple(train, "Température", 2044)
+        p2044 = faire_projection_simple(train, "Pluie (mm)", 2044)
+        e2044 = faire_projection_simple(train, "ET0 (mm)", 2044)
 
-    df_2044_ml = temp_2044.merge(prec_2044, on=["Mois (numéro)", "Mois (nom)"]).merge(et0_2044, on=["Mois (numéro)", "Mois (nom)"])
-    df_2044_ml["Précipitations cumulées (mm)"] = df_2044_ml["Précipitations totales (mm)"].cumsum().round(1)
-    df_2044_ml["Evapotranspiration cumulée (mm)"] = df_2044_ml["Evapotranspiration (mm)"].cumsum().round(1)
-
-    st.markdown("#### 📅 Données mensuelles prévues — 2044 (Linéaire)")
-    st.dataframe(df_2044_ml, use_container_width=True)
-
-    # Graphiques comparatifs (inchangés)
-    # Température
-    df_plot_t = pd.concat([
-        df_2004[["Mois (nom)", "Température moyenne (°C)"]].assign(Année=2004),
-        df_2024[["Mois (nom)", "Température moyenne (°C)"]].assign(Année=2024),
-        df_2044_ml[["Mois (nom)", "Température moyenne (°C)"]].assign(Année=2044)
-    ], ignore_index=True)
-    df_plot_t["Mois (nom)"] = pd.Categorical(df_plot_t["Mois (nom)"], categories=ordre_mois, ordered=True)
-
-    st.markdown("#### 🌡️ Température moyenne mensuelle — 2004 / 2024 / 2044 (Linéaire)")
-    chart_t_ml = alt.Chart(df_plot_t).mark_line(point=True).encode(
-        x=alt.X("Mois (nom):O", sort=ordre_mois),
-        y=alt.Y("Température moyenne (°C):Q"),
-        color="Année:N",
-        tooltip=["Année", "Mois (nom)", alt.Tooltip("Température moyenne (°C):Q", format=".1f")]
+    df_2044 = (
+        t2044.merge(p2044, on=["mois","Nom du Mois"])
+             .merge(e2044, on=["mois","Nom du Mois"])
+             .sort_values("mois")
+             .reset_index(drop=True)
     )
-    st.altair_chart(chart_t_ml, use_container_width=True)
+    df_2044["Pluie Totale Progressive (mm)"] = df_2044["Pluie (mm)"].cumsum().round(1)
+    df_2044["ET0 Totale Progressive (mm)"] = df_2044["ET0 (mm)"].cumsum().round(1)
 
-    # Précipitations
-    df_plot_p = pd.concat([
-        df_2004[["Mois (nom)", "Précipitations totales (mm)"]].assign(Année=2004),
-        df_2024[["Mois (nom)", "Précipitations totales (mm)"]].assign(Année=2024),
-        df_2044_ml[["Mois (nom)", "Précipitations totales (mm)"]].assign(Année=2044)
-    ], ignore_index=True)
-    df_plot_p["Mois (nom)"] = pd.Categorical(df_plot_p["Mois (nom)"], categories=ordre_mois, ordered=True)
+    st.markdown("#### 📅 Tableau des prévisions 2044")
+    st.dataframe(df_2044, use_container_width=True)
 
-    st.markdown("#### 🌧️ Précipitations totales mensuelles — 2004 / 2024 / 2044 (Linéaire)")
-    chart_p_ml = alt.Chart(df_plot_p).mark_bar().encode(
-        x=alt.X("Mois (nom):O", sort=ordre_mois),
-        y=alt.Y("Précipitations totales (mm):Q"),
-        color="Année:N",
-        tooltip=["Année", "Mois (nom)", alt.Tooltip("Précipitations totales (mm):Q", format=".1f")]
-    )
-    st.altair_chart(chart_p_ml, use_container_width=True)
+    # Comparaisons T / P
+    st.markdown("#### 🌡️ Températures 2004 / 2024 / 2044")
+    fig6, ax6 = plt.subplots()
+    ax6.plot(df_2004["Nom du Mois"], df_2004["Température"], marker="o", label="2004")
+    ax6.plot(df_2024["Nom du Mois"], df_2024["Température"], marker="o", label="2024")
+    ax6.plot(df_2044["Nom du Mois"], df_2044["Température"], marker="o", label="2044 (proj.)")
+    ax6.set_xlabel("Mois"); ax6.set_ylabel("Température (°C)")
+    ax6.legend(); ax6.grid(True, alpha=0.3); plt.xticks(rotation=45)
+    st.pyplot(fig6, clear_figure=True)
+
+    st.markdown("#### 🌧️ Pluies 2004 / 2024 / 2044")
+    width = 0.25
+    x = np.arange(12)
+    fig7, ax7 = plt.subplots()
+    ax7.bar(x - width, df_2004["Pluie (mm)"], width=width, label="2004")
+    ax7.bar(x,          df_2024["Pluie (mm)"], width=width, label="2024")
+    ax7.bar(x + width,  df_2044["Pluie (mm)"], width=width, label="2044 (proj.)")
+    ax7.set_xticks(x, ORDRE_MOIS, rotation=45)
+    ax7.set_ylabel("Pluie (mm)")
+    ax7.legend(); ax7.grid(True, axis="y", alpha=0.3)
+    st.pyplot(fig7, clear_figure=True)
+
+    # Petite éval (rétro-validation grossière sur 2024 à partir de 2004-2023 si on veut)
+    with st.expander("🧪 Optionnel : évaluer rapidement l’erreur sur 2024 (MAE)"):
+        # On entraîne sur 2004-2023 et on prédit 2024 pour comparer
+        train_0423 = preparer_donnees_pour_ml(2004, 2023)
+        pred24_T = faire_projection_simple(train_0423, "Température", 2024)["Température"].to_numpy()
+        pred24_P = faire_projection_simple(train_0423, "Pluie (mm)", 2024)["Pluie (mm)"].to_numpy()
+
+        mae_T = metrique_mae(df_2024["Température"].to_numpy(), pred24_T)
+        mae_P = metrique_mae(df_2024["Pluie (mm)"].to_numpy(), pred24_P)
+
+        st.write(f"MAE Température (2024 vs préd. 2004–2023) : **{mae_T:.2f} °C**")
+        st.write(f"MAE Pluie (2024 vs préd. 2004–2023) : **{mae_P:.2f} mm**")
 
     # Export
-    csv_ml = df_2044_ml.to_csv(index=False).encode("utf-8")
+    csv_ml = df_2044.to_csv(index=False).encode("utf-8")
     st.download_button(
-        "📥 Télécharger la projection 2044 (Linéaire)",
+        "📥 Télécharger la prédiction 2044 (version cours)",
         data=csv_ml,
-        file_name="projection_2044_lineaire.csv",
+        file_name="prediction_2044_version_cours.csv",
         mime="text/csv"
     )
