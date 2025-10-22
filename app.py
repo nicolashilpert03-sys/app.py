@@ -170,6 +170,56 @@ with onglet_comp:
     ax.set_xlabel("Mois"); _prettify_ax(ax, "Pluie (mm)"); _legend(ax)
     st.pyplot(fig, use_container_width=False, clear_figure=True); plt.close(fig)
 
+        # ================== 🧮 Tableau de comparaison mensuelle (comme la capture) ==================
+    st.markdown("#### 🧮 Tableau de comparaison mensuelle 2004 vs 2024")
+
+    # Construit le tableau avec les écarts
+    df_comp = pd.DataFrame({
+        "Mois (numéro)": df_2004["mois"].values,
+        "Mois (nom)": df_2004["Nom du Mois"].values,
+        "Température 2004 (°C)": df_2004["Température"].values,
+        "Température 2024 (°C)": df_2024["Température"].values,
+        "Δ Temp (°C)": (df_2024["Température"].values - df_2004["Température"].values),
+        "Précipitations 2004 (mm)": df_2004["Pluie (mm)"].values,
+        "Précipitations 2024 (mm)": df_2024["Pluie (mm)"].values,
+        "Δ Précip (mm)": (df_2024["Pluie (mm)"].values - df_2004["Pluie (mm)"].values),
+        "ET0 2004 (mm)": df_2004["ET0 (mm)"].values,
+        "ET0 2024 (mm)": df_2024["ET0 (mm)"].values,
+        "Δ ET0 (mm)": (df_2024["ET0 (mm)"].values - df_2004["ET0 (mm)"].values),
+    })
+
+    # Arrondis jolis
+    cols_1dec = [
+        "Température 2004 (°C)", "Température 2024 (°C)", "Δ Temp (°C)",
+        "Précipitations 2004 (mm)", "Précipitations 2024 (mm)", "Δ Précip (mm)",
+        "ET0 2004 (mm)", "ET0 2024 (mm)", "Δ ET0 (mm)"
+    ]
+    df_comp[cols_1dec] = df_comp[cols_1dec].round(1)
+
+    # Mise en forme: couleurs sur les Δ (vert si +, rouge si -)
+    def _color_delta(val):
+        if pd.isna(val): 
+            return ""
+        return "color: #2e7d32;" if val > 0 else ("color: #c62828;" if val < 0 else "color: #555;")
+
+    styled = (
+        df_comp.style
+              .applymap(_color_delta, subset=["Δ Temp (°C)", "Δ Précip (mm)", "Δ ET0 (mm)"])
+              .format({c: "{:.1f}" for c in cols_1dec})
+    )
+
+    st.dataframe(styled, use_container_width=True)
+
+    # Export CSV
+    st.download_button(
+        "📥 Télécharger le tableau de comparaison (CSV)",
+        data=df_comp.to_csv(index=False).encode("utf-8"),
+        file_name="comparaison_mensuelle_2004_2024.csv",
+        mime="text/csv",
+        help="Mois, valeurs 2004 & 2024, et écarts (Δ)"
+    )
+
+
 # =========================================================
 # 📅 Une seule année
 # =========================================================
