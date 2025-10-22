@@ -109,7 +109,7 @@ with tab_comp:
     st.pyplot(fig, use_container_width=False, clear_figure=True)
     print("Graphique température affiché")
 
-    st.subheader("🌧️ Pluie mensuelle")
+    st.subheader("Pluie mensuelle")
     fig, ax = plt.subplots(figsize=(4, 2.5))
     x = np.arange(12); width = 0.4
     ax.bar(x - width/2, df_2004["Pluie (mm)"], width=width, label="2004")
