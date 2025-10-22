@@ -1,4 +1,5 @@
-#  Application Météo — Beauvais 
+
+#  Application Météo — Beauvais
 
 import streamlit as st
 import requests
@@ -6,12 +7,11 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-# ----------------------------
 # Réglages de base
-# ----------------------------
+
 print("=== Initialisation de l'application ===")
 
-st.set_page_config(page_title="Climat Beauvais", layout="wide", page_icon="🌦️")
+st.set_page_config(page_title="Climat Beauvais", layout="wide")
 st.title("Climat de Beauvais")
 st.write("On compare 2004 et 2024, et on fait une projection pour 2044.")
 
@@ -19,7 +19,7 @@ MOIS = ["Janvier","Février","Mars","Avril","Mai","Juin",
         "Juillet","Août","Septembre","Octobre","Novembre","Décembre"]
 
 
-# 1) Télécharger + préparer UNE année
+# 1) Télécharger et préparer UNE année
 
 def charger_annee(annee):
     print(f"\n--- Téléchargement des données pour {annee} ---")
@@ -39,7 +39,7 @@ def charger_annee(annee):
     data = r.json()["daily"]
     print("Données reçues avec succès")
 
-    print("Création du DataFrame pandas...")
+    print("Création du DataFrame pandas")
     df = pd.DataFrame({
         "date": pd.to_datetime(data["time"]),
         "Température": data["temperature_2m_mean"],
@@ -67,8 +67,8 @@ def charger_annee(annee):
 
 # 2) Charger 2004 et 2024
 
-print("\n=== Chargement des données 2004 et 2024 ===")
-with st.spinner("⏳ Téléchargement des données 2004 et 2024..."):
+print("\n Chargement des données 2004 et 2024 ")
+with st.spinner(" Téléchargement des données 2004 et 2024..."):
     df_2004 = charger_annee(2004)
     df_2024 = charger_annee(2024)
 print("Données chargées avec succès pour 2004 et 2024")
@@ -79,16 +79,16 @@ print("Données chargées avec succès pour 2004 et 2024")
 tab_comp, tab_annee, tab_proj = st.tabs([
     "Comparaison 2004 vs 2024",
     "Une seule année",
-    "Projection 2044 (très simple)"
+    "Projection 2044 "
 ])
 
 
 # Comparaison 2004 vs 2024
 
 with tab_comp:
-    print("\n=== Onglet Comparaison ===")
+    print("\n Onglet Comparaison ")
     c1, c2, c3 = st.columns(3)
-    print("Calcul des métriques moyennes et totales...")
+    print("Calcul des métriques moyennes et totales")
 
     temp_diff = df_2024["Température"].mean() - df_2004["Température"].mean()
     pluie_diff = df_2024["Pluie (mm)"].sum() - df_2004["Pluie (mm)"].sum()
@@ -100,7 +100,7 @@ with tab_comp:
     c2.metric("Pluie totale 2024", f"{df_2024['Pluie (mm)'].sum():.0f} mm", f"{pluie_diff:+.0f} vs 2004")
     c3.metric("ET0 totale 2024", f"{df_2024['ET0 (mm)'].sum():.0f} mm", f"{et0_diff:+.0f} vs 2004")
 
-    print("Création des graphiques...")
+    print("Création des graphiques")
     st.subheader("Températures mensuelles")
     fig, ax = plt.subplots(figsize=(4, 2.5))
     ax.plot(df_2004["Nom du Mois"], df_2004["Température"], marker="o", label="2004")
@@ -119,7 +119,7 @@ with tab_comp:
     st.pyplot(fig, use_container_width=False, clear_figure=True)
     print("Graphique pluie affiché")
 
-    print("Création du tableau comparatif...")
+    print("Création du tableau comparatif")
     comp = pd.DataFrame({
         "Mois": df_2004["Nom du Mois"],
         "Temp 2004 (°C)": df_2004["Température"],
@@ -140,7 +140,7 @@ with tab_comp:
 # Une seule année
 
 with tab_annee:
-    print("\n=== Onglet Une seule année ===")
+    print("\n Onglet Une seule année ")
     an = st.radio("Choisis l'année :", [2004, 2024], horizontal=True)
     df_sel = df_2004 if an == 2004 else df_2024
     print(f"Année sélectionnée : {an}")
@@ -176,7 +176,7 @@ with tab_proj:
 
     st.dataframe(df_2044, use_container_width=True)
 
-    st.markdown("#### Températures 2004 / 2024 / 2044")
+    st.markdown("Températures 2004 / 2024 / 2044")
     fig, ax = plt.subplots(figsize=(4, 2.5))
     ax.plot(df_2004["Nom du Mois"], df_2004["Température"], label="2004")
     ax.plot(df_2024["Nom du Mois"], df_2024["Température"], label="2024")
@@ -185,4 +185,4 @@ with tab_proj:
     st.pyplot(fig, use_container_width=False, clear_figure=True)
     print("Graphique température projection affiché")
 
-print("\n=== Fin du script — tout semble OK ===")
+print("\n Fin du script ")
