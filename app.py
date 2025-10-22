@@ -129,13 +129,17 @@ with t1:
               f"{(df_2024['ET0 (mm)'].sum()-df_2004['ET0 (mm)'].sum()):+.1f}")
 
     st.markdown("#### 🌡️ Températures mensuelles")
-    fig, ax = plt.subplots(figsize=FIGSIZE, dpi=DPI, constrained_layout=True)
-    ax.plot(df_2004["Nom du Mois"], df_2004["Température"], marker="o", ms=3.5, lw=1.4, label="2004")
-    ax.plot(df_2024["Nom du Mois"], df_2024["Température"], marker="o", ms=3.5, lw=1.4, label="2024")
-    ax.set_xlabel("Mois"); ax.set_ylabel("Température (°C)")
-    ax.legend(frameon=True)
+    fig, ax = plt.subplots(figsize=(3.5, 2.2))  # petite taille
+    ax.plot(df_2004["Nom du Mois"], df_2004["Température"], marker="o", label="2004")
+    ax.plot(df_2024["Nom du Mois"], df_2024["Température"], marker="o", label="2024")
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    ax.set_xlabel("Mois")
+    ax.set_ylabel("Température (°C)")
     plt.xticks(rotation=45)
     st.pyplot(fig, clear_figure=True, use_container_width=False)
+    plt.close(fig)
+
 
     st.markdown("#### 🌧️ Pluie mensuelle")
     x = np.arange(12); width = 0.36
