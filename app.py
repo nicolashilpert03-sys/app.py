@@ -1,6 +1,4 @@
-# =========================================================
-# 🌤️ Mon Application Météo Simple — Beauvais 
-# =========================================================
+# 🌤️ Mon Application Météo Simple — Beauvais (version débutant·e avec print)
 
 import streamlit as st
 import requests
@@ -8,279 +6,183 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-# -----------------------------
-# Config & style global
-# -----------------------------
-st.set_page_config(page_title="Climat Beauvais", layout="wide", page_icon="🌦️")
-st.markdown("<h1 style='text-align:center;'>🌤️ Climat de Beauvais </h1>", unsafe_allow_html=True)
-st.write("Données historiques via Open-Meteo (2004 & 2024), comparaisons et projection 2044 (régression linéaire)")
+# ----------------------------
+# Réglages de base
+# ----------------------------
+print("=== Initialisation de l'application ===")
 
-# style matplotlib (tailles, grilles, légendes)
-plt.rcParams.update({
-    "figure.dpi": 200,
-    "font.size": 9,
-    "axes.labelsize": 9,
-    "xtick.labelsize": 8,
-    "ytick.labelsize": 8,
-    "legend.fontsize": 8,
-    "axes.grid": True,
-    "grid.alpha": 0.25,
-})
+st.set_page_config(page_title="Climat Beauvais (débutant avec print)", layout="wide", page_icon="🌦️")
+st.title("🌤️ Climat de Beauvais — Version Débutant·e avec print()")
+st.write("On compare 2004 et 2024, et on fait une **projection simple** pour 2044.")
 
-ORDRE_MOIS = ["Janvier","Février","Mars","Avril","Mai","Juin",
-              "Juillet","Août","Septembre","Octobre","Novembre","Décembre"]
-MOIS_ABR   = ["Jan","Fév","Mar","Avr","Mai","Juin","Juil","Août","Sep","Oct","Nov","Déc"]
-NOMS_MOIS  = {i+1: ORDRE_MOIS[i] for i in range(12)}
-SMALL_FIG  = (4.0, 2.6)  # compact mais lisible
+MOIS = ["Janvier","Février","Mars","Avril","Mai","Juin",
+        "Juillet","Août","Septembre","Octobre","Novembre","Décembre"]
 
-def _prettify_ax(ax, y_label=""):
-    # bords plus clean
-    ax.spines["top"].set_visible(False)
-    ax.spines["right"].set_visible(False)
-    # labels
-    ax.set_ylabel(y_label)
-    # ticks x = mois abrégés bien droits
-    ax.set_xticklabels(MOIS_ABR, rotation=0, ha="center")
-    # marges & agencement
-    ax.margins(x=0.02)
-    # espace pour légende si besoin
-    plt.tight_layout()
-
-def _legend(ax):
-    # légende compacte, semi-déportée
-    leg = ax.legend(loc="upper left", bbox_to_anchor=(0.02, 0.98), frameon=True, framealpha=0.85)
-    leg.get_frame().set_linewidth(0.5)
-
-# -----------------------------
-# Données
-# -----------------------------
-def telecharger_journalier(annee, lat=49.43, lon=2.08, tz="Europe/Paris"):
+# ----------------------------
+# 1) Télécharger + préparer UNE année
+# ----------------------------
+def charger_annee(annee):
+    print(f"\n--- Téléchargement des données pour {annee} ---")
     url = "https://archive-api.open-meteo.com/v1/archive"
     params = {
-        "latitude": lat, "longitude": lon,
-        "start_date": f"{annee}-01-01", "end_date": f"{annee}-12-31",
+        "latitude": 49.43,
+        "longitude": 2.08,
+        "start_date": f"{annee}-01-01",
+        "end_date": f"{annee}-12-31",
         "daily": "temperature_2m_mean,precipitation_sum,et0_fao_evapotranspiration",
-        "timezone": tz
+        "timezone": "Europe/Paris",
     }
+    print(f"Appel de l’API Open-Meteo avec paramètres : {params}")
     r = requests.get(url, params=params, timeout=60)
+    print(f"Statut de la requête : {r.status_code}")
     r.raise_for_status()
-    d = r.json()["daily"]
+    data = r.json()["daily"]
+    print("✅ Données reçues avec succès")
+
+    print("Création du DataFrame pandas...")
     df = pd.DataFrame({
-        "date": pd.to_datetime(d["time"]),
-        "Température": d["temperature_2m_mean"],
-        "Pluie (mm)": d["precipitation_sum"],
-        "ET0 (mm)": d["et0_fao_evapotranspiration"],
+        "date": pd.to_datetime(data["time"]),
+        "Température": data["temperature_2m_mean"],
+        "Pluie (mm)": data["precipitation_sum"],
+        "ET0 (mm)": data["et0_fao_evapotranspiration"],
     })
-    df["mois"] = df["date"].dt.month
-    return df
+    print(f"Taille du tableau initial : {df.shape}")
 
-def agregation_mensuelle(df):
-    dfm = (df.groupby("mois", as_index=False)
-             .agg({"Température":"mean","Pluie (mm)":"sum","ET0 (mm)":"sum"}))
-    dfm["Nom du Mois"] = dfm["mois"].map(NOMS_MOIS)
-    dfm["Pluie Totale Progressive (mm)"] = dfm["Pluie (mm)"].cumsum()
-    dfm["ET0 Totale Progressive (mm)"]   = dfm["ET0 (mm)"].cumsum()
-    return dfm.round(1)
-
-def telecharger_et_preparer_donnees(annee):
-    return agregation_mensuelle(telecharger_journalier(annee))
-
-def preparer_donnees_pour_ml(an_debut=2004, an_fin=2024):
-    all_years = []
-    for an in range(an_debut, an_fin+1):
-        dfm = telecharger_et_preparer_donnees(an)
-        dfm["Année"] = an
-        all_years.append(dfm[["Année","mois","Température","Pluie (mm)","ET0 (mm)"]])
-    train = pd.concat(all_years, ignore_index=True)
-    angle = 2*np.pi*(train["mois"]-1)/12
-    train["sin_saison"] = np.sin(angle)
-    train["cos_saison"] = np.cos(angle)
-    return train
-
-# régression 
-def regression_lineaire_maison(X, y):
-    Xb = np.column_stack([np.ones(len(X)), X])
-    beta, *_ = np.linalg.lstsq(Xb, y, rcond=None)
-    return beta
-
-def predire_reg_lin_maison(X, beta):
-    Xb = np.column_stack([np.ones(len(X)), X])
-    return Xb @ beta
-
-def faire_projection_simple(train_df, nom_cible, an_cible=2044):
-    X = train_df[["Année","sin_saison","cos_saison"]].to_numpy()
-    y = train_df[nom_cible].to_numpy()
-    beta = regression_lineaire_maison(X, y)
-    mois = np.arange(1,13)
-    angle = 2*np.pi*(mois-1)/12
-    Xp = np.column_stack([np.full(12, an_cible, dtype=float), np.sin(angle), np.cos(angle)])
-    yhat = predire_reg_lin_maison(Xp, beta)
-    return pd.DataFrame({
-        "mois": mois,
-        "Nom du Mois": [ORDRE_MOIS[m-1] for m in mois],
-        nom_cible: np.round(yhat, 1)
+    print("Ajout du numéro de mois et agrégation mensuelle...")
+    df["mois_num"] = df["date"].dt.month
+    dfm = df.groupby("mois_num", as_index=False).agg({
+        "Température": "mean",
+        "Pluie (mm)": "sum",
+        "ET0 (mm)": "sum"
     })
+    dfm["Nom du Mois"] = dfm["mois_num"].apply(lambda m: MOIS[m-1])
+    dfm["Pluie cumul (mm)"] = dfm["Pluie (mm)"].cumsum()
+    dfm["ET0 cumul (mm)"] = dfm["ET0 (mm)"].cumsum()
+    dfm = dfm.round(1)
 
-def metrique_mae(y_true, y_pred):
-    return float(np.mean(np.abs(y_true - y_pred)))
+    print(f"✅ Année {annee} préparée avec succès — {len(dfm)} lignes")
+    print(dfm.head())
+    return dfm
 
-# -----------------------------
-# Chargement
-# -----------------------------
-with st.spinner("⏳ Téléchargement 2004 & 2024..."):
-    df_2004 = telecharger_et_preparer_donnees(2004)
-    df_2024 = telecharger_et_preparer_donnees(2024)
+# ----------------------------
+# 2) Charger 2004 et 2024
+# ----------------------------
+print("\n=== Chargement des données 2004 et 2024 ===")
+with st.spinner("⏳ Téléchargement des données 2004 et 2024..."):
+    df_2004 = charger_annee(2004)
+    df_2024 = charger_annee(2024)
+print("✅ Données chargées avec succès pour 2004 et 2024")
 
-# -----------------------------
-# Onglets
-# -----------------------------
-onglet_comp, onglet_annee, onglet_proj = st.tabs([
+# ----------------------------
+# 3) Onglets
+# ----------------------------
+tab_comp, tab_annee, tab_proj = st.tabs([
     "🆚 Comparaison 2004 vs 2024",
     "📅 Une seule année",
-    "🔮 Prédictions 2044"
+    "🔮 Projection 2044 (très simple)"
 ])
 
 # =========================================================
-# 🆚 Comparaison
+# 🆚 Comparaison 2004 vs 2024
 # =========================================================
-with onglet_comp:
+with tab_comp:
+    print("\n=== Onglet Comparaison ===")
     c1, c2, c3 = st.columns(3)
-    c1.metric("Moyenne Temp. 2024", f"{df_2024['Température'].mean():.1f} °C",
-              f"{(df_2024['Température'].mean()-df_2004['Température'].mean()):+.1f} vs 2004")
-    c2.metric("Total Pluie 2024", f"{df_2024['Pluie (mm)'].sum():.1f} mm",
-              f"{(df_2024['Pluie (mm)'].sum()-df_2004['Pluie (mm)'].sum()):+.1f} vs 2004")
-    c3.metric("Total ET0 2024", f"{df_2024['ET0 (mm)'].sum():.1f} mm",
-              f"{(df_2024['ET0 (mm)'].sum()-df_2004['ET0 (mm)'].sum()):+.1f} vs 2004")
+    print("Calcul des métriques moyennes et totales...")
 
-    # Températures
-    st.markdown("#### 🌡️ Températures mensuelles (2004 vs 2024)")
-    fig, ax = plt.subplots(figsize=SMALL_FIG)
-    ax.plot(df_2004["Nom du Mois"], df_2004["Température"], marker="o", ms=3.5, lw=1.6, label="2004")
-    ax.plot(df_2024["Nom du Mois"], df_2024["Température"], marker="o", ms=3.5, lw=1.6, label="2024")
-    ax.set_xlabel("Mois"); _prettify_ax(ax, "Température (°C)"); _legend(ax)
-    st.pyplot(fig, use_container_width=False, clear_figure=True); plt.close(fig)
+    temp_diff = df_2024["Température"].mean() - df_2004["Température"].mean()
+    pluie_diff = df_2024["Pluie (mm)"].sum() - df_2004["Pluie (mm)"].sum()
+    et0_diff = df_2024["ET0 (mm)"].sum() - df_2004["ET0 (mm)"].sum()
 
-    # Pluies
-    st.markdown("#### 🌧️ Pluies mensuelles (2004 vs 2024)")
-    x = np.arange(12); width = 0.38
-    fig, ax = plt.subplots(figsize=SMALL_FIG)
+    print(f"Diff Temp: {temp_diff:.2f} | Diff Pluie: {pluie_diff:.2f} | Diff ET0: {et0_diff:.2f}")
+
+    c1.metric("Température moyenne 2024", f"{df_2024['Température'].mean():.1f} °C", f"{temp_diff:+.1f} vs 2004")
+    c2.metric("Pluie totale 2024", f"{df_2024['Pluie (mm)'].sum():.0f} mm", f"{pluie_diff:+.0f} vs 2004")
+    c3.metric("ET0 totale 2024", f"{df_2024['ET0 (mm)'].sum():.0f} mm", f"{et0_diff:+.0f} vs 2004")
+
+    print("Création des graphiques...")
+    st.subheader("🌡️ Températures mensuelles")
+    fig, ax = plt.subplots(figsize=(4, 2.5))
+    ax.plot(df_2004["Nom du Mois"], df_2004["Température"], marker="o", label="2004")
+    ax.plot(df_2024["Nom du Mois"], df_2024["Température"], marker="o", label="2024")
+    ax.legend(); ax.set_xlabel("Mois"); ax.set_ylabel("°C"); plt.xticks(rotation=45)
+    st.pyplot(fig, use_container_width=False, clear_figure=True)
+    print("✅ Graphique température affiché")
+
+    st.subheader("🌧️ Pluie mensuelle")
+    fig, ax = plt.subplots(figsize=(4, 2.5))
+    x = np.arange(12); width = 0.4
     ax.bar(x - width/2, df_2004["Pluie (mm)"], width=width, label="2004")
     ax.bar(x + width/2, df_2024["Pluie (mm)"], width=width, label="2024")
-    ax.set_xticks(x, MOIS_ABR)
-    ax.set_xlabel("Mois"); _prettify_ax(ax, "Pluie (mm)"); _legend(ax)
-    st.pyplot(fig, use_container_width=False, clear_figure=True); plt.close(fig)
+    ax.set_xticks(x, df_2024["Nom du Mois"]); plt.xticks(rotation=45)
+    ax.legend(); ax.set_ylabel("mm")
+    st.pyplot(fig, use_container_width=False, clear_figure=True)
+    print("✅ Graphique pluie affiché")
 
-        # ================== 🧮 Tableau de comparaison mensuelle (comme la capture) ==================
-    st.markdown("#### 🧮 Tableau de comparaison mensuelle 2004 vs 2024")
-
-    # Construit le tableau avec les écarts
-    df_comp = pd.DataFrame({
-        "Mois (numéro)": df_2004["mois"].values,
-        "Mois (nom)": df_2004["Nom du Mois"].values,
-        "Température 2004 (°C)": df_2004["Température"].values,
-        "Température 2024 (°C)": df_2024["Température"].values,
-        "Δ Temp (°C)": (df_2024["Température"].values - df_2004["Température"].values),
-        "Précipitations 2004 (mm)": df_2004["Pluie (mm)"].values,
-        "Précipitations 2024 (mm)": df_2024["Pluie (mm)"].values,
-        "Δ Précip (mm)": (df_2024["Pluie (mm)"].values - df_2004["Pluie (mm)"].values),
-        "ET0 2004 (mm)": df_2004["ET0 (mm)"].values,
-        "ET0 2024 (mm)": df_2024["ET0 (mm)"].values,
-        "Δ ET0 (mm)": (df_2024["ET0 (mm)"].values - df_2004["ET0 (mm)"].values),
+    print("Création du tableau comparatif...")
+    comp = pd.DataFrame({
+        "Mois": df_2004["Nom du Mois"],
+        "Temp 2004 (°C)": df_2004["Température"],
+        "Temp 2024 (°C)": df_2024["Température"],
+        "Δ Temp (°C)": (df_2024["Température"] - df_2004["Température"]).round(1),
+        "Pluie 2004 (mm)": df_2004["Pluie (mm)"],
+        "Pluie 2024 (mm)": df_2024["Pluie (mm)"],
+        "Δ Pluie (mm)": (df_2024["Pluie (mm)"] - df_2004["Pluie (mm)"]).round(1),
+        "ET0 2004 (mm)": df_2004["ET0 (mm)"],
+        "ET0 2024 (mm)": df_2024["ET0 (mm)"],
+        "Δ ET0 (mm)": (df_2024["ET0 (mm)"] - df_2004["ET0 (mm)"]).round(1),
     })
-
-    # Arrondis jolis
-    cols_1dec = [
-        "Température 2004 (°C)", "Température 2024 (°C)", "Δ Temp (°C)",
-        "Précipitations 2004 (mm)", "Précipitations 2024 (mm)", "Δ Précip (mm)",
-        "ET0 2004 (mm)", "ET0 2024 (mm)", "Δ ET0 (mm)"
-    ]
-    df_comp[cols_1dec] = df_comp[cols_1dec].round(1)
-
-    # Mise en forme: couleurs sur les Δ (vert si +, rouge si -)
-    def _color_delta(val):
-        if pd.isna(val): 
-            return ""
-        return "color: #2e7d32;" if val > 0 else ("color: #c62828;" if val < 0 else "color: #555;")
-
-    styled = (
-        df_comp.style
-              .applymap(_color_delta, subset=["Δ Temp (°C)", "Δ Précip (mm)", "Δ ET0 (mm)"])
-              .format({c: "{:.1f}" for c in cols_1dec})
-    )
-
-    st.dataframe(styled, use_container_width=True)
-
-    # Export CSV
-    st.download_button(
-        "📥 Télécharger le tableau de comparaison (CSV)",
-        data=df_comp.to_csv(index=False).encode("utf-8"),
-        file_name="comparaison_mensuelle_2004_2024.csv",
-        mime="text/csv",
-        help="Mois, valeurs 2004 & 2024, et écarts (Δ)"
-    )
-
+    print("✅ Tableau créé :")
+    print(comp.head())
+    st.dataframe(comp, use_container_width=True)
 
 # =========================================================
 # 📅 Une seule année
 # =========================================================
-with onglet_annee:
-    annee = st.radio("Choisis l'année :", [2004, 2024], horizontal=True)
-    df = df_2004 if annee == 2004 else df_2024
-    st.dataframe(df, use_container_width=True)
+with tab_annee:
+    print("\n=== Onglet Une seule année ===")
+    an = st.radio("Choisis l'année :", [2004, 2024], horizontal=True)
+    df_sel = df_2004 if an == 2004 else df_2024
+    print(f"Année sélectionnée : {an}")
+    st.dataframe(df_sel, use_container_width=True)
 
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("#### 🌡️ Température par mois")
-        fig, ax = plt.subplots(figsize=SMALL_FIG)
-        ax.plot(df["Nom du Mois"], df["Température"], marker="o", ms=3.5, lw=1.6)
-        ax.set_xlabel("Mois"); _prettify_ax(ax, "Température (°C)")
-        st.pyplot(fig, use_container_width=False, clear_figure=True); plt.close(fig)
-    with col2:
-        st.markdown("#### 🌧️ Pluie par mois")
-        fig, ax = plt.subplots(figsize=SMALL_FIG)
-        ax.bar(df["Nom du Mois"], df["Pluie (mm)"])
-        ax.set_xlabel("Mois"); _prettify_ax(ax, "Pluie (mm)")
-        st.pyplot(fig, use_container_width=False, clear_figure=True); plt.close(fig)
-
-    st.markdown("#### 💧 ET0 Totale Progressive (cumul)")
-    fig, ax = plt.subplots(figsize=SMALL_FIG)
-    ax.fill_between(df["Nom du Mois"], df["ET0 Totale Progressive (mm)"], alpha=0.6, step="mid")
-    ax.set_xlabel("Mois"); _prettify_ax(ax, "ET0 cumulée (mm)")
-    st.pyplot(fig, use_container_width=False, clear_figure=True); plt.close(fig)
+    fig, ax = plt.subplots(figsize=(4, 2.5))
+    ax.plot(df_sel["Nom du Mois"], df_sel["Température"], marker="o")
+    ax.set_xlabel("Mois"); ax.set_ylabel("°C"); plt.xticks(rotation=45)
+    st.pyplot(fig, use_container_width=False, clear_figure=True)
+    print("✅ Graphique température année unique affiché")
 
 # =========================================================
-# 🔮 Prédictions 2044
+# 🔮 Projection 2044 (ultra simple)
 # =========================================================
-with onglet_proj:
-    st.subheader("🔮 Projection 2044 (régression linéaire )")
-    with st.spinner("⏳ Calcul…"):
-        train = preparer_donnees_pour_ml(2004, 2024)
-        t2044 = faire_projection_simple(train, "Température", 2044)
-        p2044 = faire_projection_simple(train, "Pluie (mm)", 2044)
-        e2044 = faire_projection_simple(train, "ET0 (mm)", 2044)
+with tab_proj:
+    print("\n=== Onglet Projection ===")
+    st.write("Projection très simple : on prolonge la tendance (2004→2024) jusqu’à 2044.")
+    temp_2044 = (df_2024["Température"] + (df_2024["Température"] - df_2004["Température"])).round(1)
+    pluie_2044 = (df_2024["Pluie (mm)"] + (df_2024["Pluie (mm)"] - df_2004["Pluie (mm)"])).round(1)
+    et0_2044   = (df_2024["ET0 (mm)"] + (df_2024["ET0 (mm)"] - df_2004["ET0 (mm)"])).round(1)
 
-    df_2044 = (t2044.merge(p2044, on=["mois","Nom du Mois"])
-                     .merge(e2044, on=["mois","Nom du Mois"]))
-    df_2044["Pluie Totale Progressive (mm)"] = df_2044["Pluie (mm)"].cumsum().round(1)
-    df_2044["ET0 Totale Progressive (mm)"]   = df_2044["ET0 (mm)"].cumsum().round(1)
+    print("Calcul des valeurs projetées pour 2044 terminé.")
+    df_2044 = pd.DataFrame({
+        "Nom du Mois": df_2024["Nom du Mois"],
+        "Température": temp_2044,
+        "Pluie (mm)": pluie_2044,
+        "ET0 (mm)": et0_2044
+    })
+    df_2044["Pluie cumul (mm)"] = df_2044["Pluie (mm)"].cumsum().round(1)
+    df_2044["ET0 cumul (mm)"] = df_2044["ET0 (mm)"].cumsum().round(1)
+    print("✅ Tableau 2044 prêt :")
+    print(df_2044.head())
+
     st.dataframe(df_2044, use_container_width=True)
 
-    # Températures comparées
-    st.markdown("#### 🌡️ 2004 / 2024 / 2044")
-    fig, ax = plt.subplots(figsize=SMALL_FIG)
-    ax.plot(df_2004["Nom du Mois"], df_2004["Température"], marker="o", ms=3.5, lw=1.6, label="2004")
-    ax.plot(df_2024["Nom du Mois"], df_2024["Température"], marker="o", ms=3.5, lw=1.6, label="2024")
-    ax.plot(df_2044["Nom du Mois"], df_2044["Température"], marker="o", ms=3.5, lw=1.6, label="2044 (proj.)")
-    ax.set_xlabel("Mois"); _prettify_ax(ax, "Température (°C)"); _legend(ax)
-    st.pyplot(fig, use_container_width=False, clear_figure=True); plt.close(fig)
+    st.markdown("#### 🌡️ Températures 2004 / 2024 / 2044")
+    fig, ax = plt.subplots(figsize=(4, 2.5))
+    ax.plot(df_2004["Nom du Mois"], df_2004["Température"], label="2004")
+    ax.plot(df_2024["Nom du Mois"], df_2024["Température"], label="2024")
+    ax.plot(df_2044["Nom du Mois"], df_2044["Température"], label="2044 (proj.)")
+    ax.legend(); plt.xticks(rotation=45)
+    st.pyplot(fig, use_container_width=False, clear_figure=True)
+    print("✅ Graphique température projection affiché")
 
-    # Pluies comparées
-    st.markdown("#### 🌧️ 2004 / 2024 / 2044")
-    x = np.arange(12); width = 0.25
-    fig, ax = plt.subplots(figsize=SMALL_FIG)
-    ax.bar(x - width, df_2004["Pluie (mm)"], width=width, label="2004")
-    ax.bar(x,         df_2024["Pluie (mm)"], width=width, label="2024")
-    ax.bar(x + width, df_2044["Pluie (mm)"], width=width, label="2044 (proj.)")
-    ax.set_xticks(x, MOIS_ABR)
-    ax.set_xlabel("Mois"); _prettify_ax(ax, "Pluie (mm)"); _legend(ax)
-    st.pyplot(fig, use_container_width=False, clear_figure=True); plt.close(fig)
+print("\n=== Fin du script — tout semble OK ✅ ===")
