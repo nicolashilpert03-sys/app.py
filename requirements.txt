@@ -5,6 +5,7 @@ streamlit>=1.38.0
 openmeteo-requests
 requests-cache
 retry-requests
+matplotlib
 
 # Traitement des données
 pandas>=2.2.0
