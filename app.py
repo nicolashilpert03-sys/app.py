@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 # -----------------------------
 st.set_page_config(page_title="Climat Beauvais", layout="wide", page_icon="🌦️")
 st.markdown("<h1 style='text-align:center;'>🌤️ Climat de Beauvais </h1>", unsafe_allow_html=True)
-st.write("Données historiques via Open-Meteo (2004 & 2024), comparaisons et projection 2044 (régression linéaire maison + saisonnalité).")
+st.write("Données historiques via Open-Meteo (2004 & 2024), comparaisons et projection 2044 (régression linéaire)")
 
 # style matplotlib (tailles, grilles, légendes)
 plt.rcParams.update({
