@@ -19,7 +19,7 @@ MOIS = ["Janvier","Février","Mars","Avril","Mai","Juin",
         "Juillet","Août","Septembre","Octobre","Novembre","Décembre"]
 
 
-# 1) Télécharger et préparer UNE année
+# 1) Télécharger et préparer une année
 
 def charger_annee(annee):
     print(f"\n Téléchargement des données pour {annee} ")
@@ -68,7 +68,7 @@ def charger_annee(annee):
 # 2) Charger 2004 et 2024
 
 print("\n Chargement des données 2004 et 2024 ")
-with st.spinner(" Téléchargement des données 2004 et 2024..."):
+with st.spinner(" Téléchargement des données 2004 et 2024"):
     df_2004 = charger_annee(2004)
     df_2024 = charger_annee(2024)
 print("Données chargées avec succès pour 2004 et 2024")
@@ -154,7 +154,7 @@ with tab_annee:
     print("Graphique température année unique affiché")
 
 
-# Projection 2044 (ultra simple)
+# Projection 2044
 
 with tab_proj:
     print("\n Onglet Projection ")
@@ -186,4 +186,4 @@ with tab_proj:
     st.pyplot(fig, use_container_width=False, clear_figure=True)
     print("Graphique température projection affiché")
 
-print("\n Fin du script ")
+print("\n Fin du script !!! ")
